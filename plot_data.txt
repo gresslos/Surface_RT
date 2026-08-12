@@ -1,0 +1,212 @@
+import sys, os
+import numpy as np
+import glob
+import matplotlib.pyplot as plt
+from matplotlib.ticker import AutoMinorLocator, MultipleLocator
+import cartopy.crs as ccrs
+import cartopy.feature as cfeature
+import h5py
+from netCDF4 import Dataset
+from scipy.interpolate import griddata
+
+FONTSIZE=15
+INFOSIZE=13
+FIGSIZE=(8,8)
+cmap = plt.get_cmap('viridis') 
+
+
+
+
+# Plot correlation at SUR or TOA
+WANT_SUR    = True  
+
+
+
+
+
+
+
+
+def read_flux(filename):
+    with open(filename) as file:
+        lines = [l.strip() for l in file if l.strip()]
+    flux = []
+    for line in lines:
+        line = line.split(" ")[0]
+        if '-' in line or '0.00' in line or 'nan' in line:
+            flux.append(np.nan)
+        else:
+            flux.append(float(line))
+    return np.asarray(flux)
+       
+
+############################################ PLOT ###############################################################################
+fig = plt.figure(figsize=FIGSIZE)
+ax = fig.add_subplot(1,1,1)
+            # gs = fig.add_gridspec(2, 1, height_ratios=[10,1]) #, hspace=0.0)
+            # ax = fig.add_subplot(gs[0, 0])
+
+   
+
+zout = 'SUR_' if WANT_SUR else 'TOA_' 
+AssDomain = ['1x1', '3x3', '11x11'][0] 
+
+
+filename_libRad_fluxes = [f'{zout}MYSTIC.txt', f'{zout}DISORT.txt']
+
+####### TESTING ########## 
+filename_libRad_fluxes = [f'DATA/{zout}DISORT.txt']
+##########################
+
+filename_observed_flux = 'DATA/SUR_Observations.txt' if WANT_SUR else 'TOA_Observations.txt' 
+
+pngfile = 'FIGS/correlation_' + zout[:-1] + '.png'                                                     # without_quality_status -> 29 products compare
+                                                                                                            # with quality status    -> 23 products compare
+xlabel_specs = r' [W/m$^2$]'
+xlabel = 'Pyranometer Observations' if WANT_SUR else 'BMA-FLX Observations'
+ylabel = 'RTM' # rte_solver
+ylabel_specs = xlabel_specs
+
+title =  f'Surface SW Correlation' if WANT_SUR else f'TOA SW Correlation'
+# title =  f'Surface Downward SW Flux - RTMs vs Ground-Based Observations' if WANT_SUR else f'TOA Upward SW Flux - RTMs vs BMA-FLX'
+# title =  f'Surface Downwelling SW Flux - {rte_solver} vs Ground-Based Observations' if WANT_SUR else f'TOA Upward SW Flux - {rte_solver} vs BMA-FLX'
+pl_list = []
+
+
+# Extract data to plot
+for filename_libRad in filename_libRad_fluxes:
+    color = 'mediumseagreen' if 'DISORT' in filename_libRad else 'blue'
+    rte_solver = 'DISORT (1D RTM)\n' if 'DISORT' in filename_libRad else 'MYSTIC (3D RTM)\n'
+
+    x = read_flux(filename=filename_observed_flux) # model truth
+    y = read_flux(filename=filename_libRad)
+    print("Before filtering ", len(x)) #, filename_libRad)
+
+    # print(len(x), len(y), filename_libRad)
+
+    # Filter out Nans
+    mask = ~np.isnan(x) & ~np.isnan(y)
+    x = x[mask]
+    y = y[mask]
+    # print(x)
+    # print(y)
+    print("After filtering ", len(x))
+
+    # Stats
+    r = np.corrcoef(x, y)[0, 1] # Correlation coefficient
+    r2 = r**2 # The strength of linear association
+
+    # Least squares fit y = a + b x
+    b, a = np.polyfit(x, y, 1)
+        # yhat = a + b * x
+    diff = y - x
+        # rmse = np.sqrt(np.mean(diff**2))
+    mae = np.mean(np.abs(diff))
+    bias = np.mean(diff)
+    std = np.std(diff) 
+
+    # Ranges for plotting
+    xy_min = 0 #np.nanmin([x.min(), y.min()])
+    xy_max = np.nanmax([x.max(), y.max()])
+    pad = 0.03 * (xy_max - xy_min if xy_max > xy_min else 1.0)
+    lo, hi = xy_min, xy_max + pad #xy_min - pad, xy_max + pad
+
+    # For setting ax.set_ylim/xlim
+    ymin, xmin, ymax, xmax, pad = xy_min, xy_min, xy_max, xy_max, 0
+    ax.set_xlim(xmin,hi); ax.set_ylim(ymin,hi)
+
+    # Regression line over same span
+    xx = np.linspace(lo, hi, 100)
+    p, = ax.plot(xx, a + b * xx, lw=1.5, c=color, label=f"{rte_solver}  y = {b:.1f}x + {a:.1f}") # WRITE IN FIG-TEXT: Linear Least Squares (fit)") 
+    pl_list.append(p)
+
+    want_color_mapping = False # If want colorbars to points
+    if want_color_mapping:
+        res = y - x
+        sc = ax.scatter(x, y, s=8, alpha=.8, c=res, cmap=cmap)
+
+        # Colorbar
+        cb = fig.colorbar(
+            sc, ax=ax, 
+            shrink=.8, pad=0.0, 
+            extend='both',
+            extendrect=True)
+        cb.set_label(rf"{ylabel} - {xlabel} [W/m$^2$]", size=INFOSIZE)
+        cb.ax.tick_params(labelsize=INFOSIZE)
+
+        # soften colorbar box + background
+        cb.outline.set_visible(False)             # remove black frame
+        cb.ax.set_facecolor('#f7f7f7')            # subtle bg behind ramp
+    else: ax.scatter(x, y, s=14, alpha=.8, c=color) # No color-mapping
+
+    solver_str = r"$\mathbf{{DISORT\,\,\, (1D\,\, RTM)}}$" if "1D" in rte_solver else r"$\mathbf{{MYSTIC\,\,\, (3D\,\, RTM)}}$"
+    bias_str = r"$\Delta F_{\mathrm{SUR}}^{\uparrow}$ (Bias) = " if WANT_SUR else r"$\Delta F_{\mathrm{TOA}}^{\uparrow}$ (Bias) = "
+    data_str = (
+        solver_str + "\n"
+        # f"n = {x.size}\n"
+        # f"R² = {r2:.2f}                   \n"
+        # f"RMSE = {rmse:.1f}\n"
+        + bias_str + f"{bias:.1f}" + r" $\pm$ " + f"{std:.1f}" + r" W/m$^2$"
+        # f"\nMAE = {mae:.1f}\n"
+    )
+    fig.text(.82, 0.12 if '1D' in rte_solver else 0.01, 
+                        # 0.5 if '1D' in rte_solver else .9, 0.01, 
+            data_str,
+            transform=ax.transAxes, 
+            ha='center', va='center',
+            fontsize=FONTSIZE*.7, color='k',  #color=color,    #
+            bbox=dict(boxstyle='round,pad=0.3', facecolor=color, #facecolor='w',
+            alpha=0.3))
+
+
+    
+
+# y=x line
+p, = ax.plot([lo, hi], [lo, hi], lw=1.2, c='red', linestyle="--", label="y=x")
+pl_list.append(p)
+ax.set_xlim(lo, hi)
+ax.set_ylim(lo, hi)
+ax.set_aspect("equal", adjustable="box")
+
+ax.legend(handles=pl_list,
+            loc='upper left', framealpha=0.7, 
+            borderaxespad=0.0,                   # space to axes
+            borderpad=0.25, labelspacing=0.25,   # compact box)
+            fontsize=INFOSIZE*.8)
+
+
+
+ax.set_xlabel(xlabel + xlabel_specs, fontsize=INFOSIZE)
+ax.set_ylabel(ylabel + ylabel_specs, fontsize=INFOSIZE)
+
+
+
+ax.xaxis.set_minor_locator(AutoMinorLocator())
+ax.yaxis.set_minor_locator(AutoMinorLocator())
+ax.tick_params(axis='both', which='major', labelsize=INFOSIZE*.8)
+ax.tick_params(axis='both', which='minor', labelsize=INFOSIZE*.8)
+fig.suptitle(title, fontsize=FONTSIZE, y=0.98)
+    # ax.set_title(f"{self.Name} - {date}  {time} (UTC)", fontsize=INFOSIZE)
+    # plt.figtext(0.001, 0.003, f"Baselines: AC = ({AC_baseline})  |  BA = ({BA_baseline})", fontsize=FONTSIZE*0.45)
+ 
+# BG: ----- plot-adjustments for nicer looking plots -----------
+fig.tight_layout()
+# Axes background (warm light grey)
+ax.set_facecolor('#f0f0f0')
+# Grid: major dashed, minor dotted
+ax.grid(which='major', linestyle='--', alpha=0.4)
+ax.grid(which='minor', linestyle=':',  alpha=0.2)
+ax.minorticks_on()
+
+
+
+# remove top/right border
+for spine in ['top','right']:
+    ax.spines[spine].set_visible(False)
+# -------------------------------------------------------------
+
+
+print("pngfile", pngfile)
+plt.savefig(pngfile)
+plt.close()
+

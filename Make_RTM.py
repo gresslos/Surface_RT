@@ -362,13 +362,10 @@ def SetRTM(UVS, ia, iacr, ACM3D=None, AMACD=None, ACMCOM=None, ACMRT=None, BMAFL
         if RTdimension == '3D':  
             
             Nx, Ny, iacrosses, ialongs = Calc3DBufferSize(ACM3D, ia, iacr)  #calculates along and cross track buffer size 
-            # UVS.inp['mc_photons'] = mc_photons * Nx * Ny  # Scale photons with size of 3D domain
-            ############## TESTING #############
             # Set SAMPLE-GRID
             UVS.inp['mc_sample_grid']=f'{Nx} {Ny}' # 3D computation domain
             UVS.inp['mc_reference_to_nn']='' # The sampled pixels correspond to the surface pixels.
-            ####################################
-
+          
             if (Nx > 1) & (Ny > 1):  # BG: if not MCIPA
                 # Check if latitude increase or decrease
                 is_increasing = np.all(np.diff(ACM3D.latitude[:, ia]) > 0)
@@ -445,7 +442,7 @@ def SetRTM(UVS, ia, iacr, ACM3D=None, AMACD=None, ACMCOM=None, ACMRT=None, BMAFL
         UVS.inp['mc_minphotons']=mc_photons # Note: MC_MINPHOTONS = 1e3 in uvspec.h so need to modify!
     else:
         UVS.inp['wavelength']='295 2800'     # Changed from '250 4000' 20.01.2026   
-        mc_photons = int(1e6)
+        mc_photons = int(1e7) # OLD: but maybe use if 1e7 too long! int(1e6)
         # mc_photons = int(1e4)    # Only for testing!
         UVS.inp['mc_photons']=mc_photons 
         # print('mc_photons=', mc_photons)
@@ -463,7 +460,7 @@ def SetRTM(UVS, ia, iacr, ACM3D=None, AMACD=None, ACMCOM=None, ACMRT=None, BMAFL
     
     
     # Gaseous atmosphere
-    atmosphere_file=input_dir+'tmp'+'{:00004d}'.format(ia)+'atm.dat'
+    atmosphere_file=input_dir+'tmp'+f"{OrbitID}_{ia:04d}"+'atm.dat'
     
     
     UVS.inp['atmosphere_file']=atmosphere_file  
@@ -550,47 +547,6 @@ def SetRTM(UVS, ia, iacr, ACM3D=None, AMACD=None, ACMCOM=None, ACMRT=None, BMAFL
     f.close()
     if iatm==0: UVS.status = 'No atm data for latitude: {:d} {:f}'.format(ia, ACMCOM.latitude_active[ia])
 
-                                    # if 'reptran' in UVS.inp['mol_abs_param']:
-                                    #     atmosphere_ch4_file=input_dir+'tmp'+'{:00004d}'.format(ia)+'ch4_atm.dat'
-                                    #     UVS.inp['mol_file CH4']=atmosphere_ch4_file
-                                    #     fch4 = open(atmosphere_ch4_file,'w')
-                                    #     atmosphere_n2o_file=input_dir+'tmp'+'{:00004d}'.format(ia)+'n2o_atm.dat'
-                                    #     UVS.inp['mol_file N2O']=atmosphere_n2o_file
-                                    #     fn2o = open(atmosphere_n2o_file,'w')
-
-                                    #     iatm=0
-                                    #     last_h=9999
-                                    #     for h,p,T,ch4ppv,n2oppv in zip(ACMCOM.height_level[1:,ia],ACMCOM.pressure_level[1:,ia],ACMCOM.temperature_level[1:,ia],\
-                                    #                                                ACMCOM.volume_mixing_ratio_layer_mean_CH4[:,ia], ACMCOM.volume_mixing_ratio_layer_mean_N2O[:,ia]):
-                                    #         if h > -0.0001 and p < 1e+10:
-                                    #             air = 1e-06*scipy.constants.N_A*p/(scipy.constants.R*T)  # in cm-3
-                                    #             ch4 = air*ch4ppv
-                                    #             n2o = air*n2oppv
-                                    #             last_ch4ppv=ch4ppv
-                                    #             last_no2ppv=n2oppv
-                                    #             last_h=h
-                                    #             # /1000 converts from m to km
-                                    #             # /100 converts from Pa to hPa
-                                    #             fch4.write('{:8.3f} {:12.6e}\n'.format(np.abs(h/1000.),ch4))
-                                    #             fn2o.write('{:8.3f} {:12.6e}\n'.format(np.abs(h/1000.),n2o))
-                                    #             iatm=iatm+1
-
-                                    #     # Add surface at 0 km altitude if not included in profile
-                                    #     if np.abs(last_h) > 0.0001 and RTdimension == '3D':
-                                    #         # Just add some semi-realistc numbers, these will not be included anyways because of elevation file.
-                                    #         h=0
-                                    #         p=101300
-                                    #         T=300
-                                    #         air = 1e-06*scipy.constants.N_A*p/(scipy.constants.R*T)  # in cm-3
-                                    #         ch4 = air*last_ch4ppv
-                                    #         n2o = air*last_n2oppv
-                                    #         fch4.write('{:8.3f} {:12.6e}\n'.format(np.abs(h/1000.),ch4))
-                                    #         fn2o.write('{:8.3f} {:12.6e}\n'.format(np.abs(h/1000.),n2o))
-                                    #         iatm=iatm+1
-
-                                    #     fch4.close()
-                                    #     fn2o.close()
-                                    
 
     # Water cloud
     if wccloud:
@@ -600,7 +556,7 @@ def SetRTM(UVS, ia, iacr, ACM3D=None, AMACD=None, ACMCOM=None, ACMRT=None, BMAFL
             UVS.inp['wc_properties']='mie'
 
         if RTdimension == '1D':       
-            wc_file_1D=input_dir+'tmp'+'{:00004d}'.format(ia)+'wc1D.dat'
+            wc_file_1D=input_dir+'tmp'+f"{OrbitID}_{ia:04d}"+'wc1D.dat'
             UVS.inp['wc_file 1D']=wc_file_1D
             f = open(wc_file_1D,'w')
             iwc=0
@@ -636,7 +592,7 @@ def SetRTM(UVS, ia, iacr, ACM3D=None, AMACD=None, ACMCOM=None, ACMRT=None, BMAFL
             flag = 3 # mystic 3D format
             dx = 1.0 # 1 km horizontal resolution
             dy = 1.0
-            wc_file_3D=input_dir+'tmp'+'{:00004d}'.format(ia)+'wc3D.dat'
+            wc_file_3D=input_dir+'tmp'+f"{OrbitID}_{ia:04d}"+'wc3D.dat'
             f = open(wc_file_3D,'w')
             f.write('{:d} {:d} {:d} {:d}\n'.format(Nx, Ny, Nz, flag))
             f.write('{:f} {:f} '.format(dx, dy))
@@ -672,17 +628,6 @@ def SetRTM(UVS, ia, iacr, ACM3D=None, AMACD=None, ACMCOM=None, ACMRT=None, BMAFL
 
 
                     irec = ACM3D.index_construction[iac, ial]
-
-                    ################################ TESTING ###########################
-                    # irec = ial
-                    ###################################################################
-
-
-                    # BG: modification for reduced swat-length
-                    if "Orbit_05926C" in SceneName:   irec -= 2700 
-                    elif "Orbit_06888C" in SceneName: irec -= 2527 
-                    elif "Orbit_07277C" in SceneName: irec -= 2527
-                    elif "Orbit_06331C" in SceneName: irec -= 2636
 
                     iz = 1
 
@@ -734,18 +679,11 @@ def SetRTM(UVS, ia, iacr, ACM3D=None, AMACD=None, ACMCOM=None, ACMRT=None, BMAFL
             f.close()
             UVS.inp['wc_file 3D']=wc_file_3D
             UVS.inp['mc_std']=''
-            # UVS.inp['mc_photons'] = mc_photons
-            # UVS.inp['mc_photons']='100' # BG: mark out given defined above
-            # UVS.mc_basename=mc_basename_path+'mc_{:00004d}'.format(ia)
-            # ESO bug here?
-            UVS.mc_basename=mc_basename_path+'mc_{:00004d}'.format(ia)+'_'+source
-            #            UVS.inp['']=
+       
             
     # Ice cloud
-    if iccloud:
-                    # UVS.inp['ic_properties']='yang' #'fu'
-                    # UVS.inp['ic_habit_yang2013']='solid_column severe'
-        UVS.inp['ic_properties']='baum_v36 interpolate' #'fu'
+    if iccloud:        
+        UVS.inp['ic_properties']='baum_v36 interpolate' #'fu' 'yang'
         UVS.inp['ic_habit']='ghm'
         # UVS.inp['ic_habit']='solid-column' 
         # UVS.inp['ic_habit']='rough-aggregate'                
@@ -756,10 +694,9 @@ def SetRTM(UVS, ia, iacr, ACM3D=None, AMACD=None, ACMCOM=None, ACMRT=None, BMAFL
         #   'rough-aggregate'   - Severly roughened aggregates
         
 
-        #        UVS.inp['ic_fu reff_def']='on'
 
         if RTdimension == '1D':                   
-            ic_file_1D=input_dir+'tmp'+'{:00004d}'.format(ia)+'ic1D.dat'
+            ic_file_1D=input_dir+'tmp'+f"{OrbitID}_{ia:04d}"+'ic1D.dat'
             UVS.inp['ic_file 1D']=ic_file_1D
             f = open(ic_file_1D,'w')
             iic=0
@@ -794,7 +731,7 @@ def SetRTM(UVS, ia, iacr, ACM3D=None, AMACD=None, ACMCOM=None, ACMRT=None, BMAFL
             flag = 3
             dx = 1.0 # 1 km horizontal resolution
             dy = 1.0
-            ic_file_3D=input_dir+'tmp'+'{:00004d}'.format(ia)+'ic3D.dat'
+            ic_file_3D=input_dir+'tmp'+f"{OrbitID}_{ia:04d}"+'ic3D.dat'
             f = open(ic_file_3D,'w')
             f.write('{:d} {:d} {:d} {:d}\n'.format(Nx, Ny, Nz, flag))
             f.write('{:f} {:f} '.format(dx, dy))
@@ -818,7 +755,7 @@ def SetRTM(UVS, ia, iacr, ACM3D=None, AMACD=None, ACMCOM=None, ACMRT=None, BMAFL
              
             ix=1
             iclines=0
-            for irec_surface_pixelc in iacrosses:
+            for iac in iacrosses:
                 iy=1 #if not '_TEST_edge_effects' in additional_spesifications else iy_test
                 for ial in ialongs:
                     # ############## TEST EDGE EFFECTS ####################
@@ -830,17 +767,6 @@ def SetRTM(UVS, ia, iacr, ACM3D=None, AMACD=None, ACMCOM=None, ACMRT=None, BMAFL
 
 
                     irec = ACM3D.index_construction[iac, ial]
-
-                    ################################ TESTING ###########################
-                    # irec = ial
-                    ###################################################################
-
-
-                    # BG: modification for reduced swat-length
-                    if "Orbit_05926C" in SceneName:   irec -= 2700 
-                    elif "Orbit_06888C" in SceneName: irec -= 2527 
-                    elif "Orbit_07277C" in SceneName: irec -= 2527
-                    elif "Orbit_06331C" in SceneName: irec -= 2636
 
                     iz = 1
 
@@ -909,7 +835,7 @@ def SetRTM(UVS, ia, iacr, ACM3D=None, AMACD=None, ACMCOM=None, ACMRT=None, BMAFL
         flag = 3 # mystic 3D format
         dx = 1.0 # 1 km horizontal resolution
         dy = 1.0
-        wc_file_3D=input_dir+'tmp'+'{:00004d}'.format(ia)+'wc3D.dat'
+        wc_file_3D=input_dir+'tmp'+f"{OrbitID}_{ia:04d}"+'wc3D.dat'
         f = open(wc_file_3D,'w')
         f.write('{:d} {:d} {:d} {:d}\n'.format(Nx, Ny, Nz, flag))
         f.write('{:f} {:f} '.format(dx, dy))
@@ -939,10 +865,9 @@ def SetRTM(UVS, ia, iacr, ACM3D=None, AMACD=None, ACMCOM=None, ACMRT=None, BMAFL
 
         UVS.inp['wc_file 3D']=wc_file_3D
         UVS.inp['mc_std']=''
-        # UVS.inp['mc_photons'] = mc_photons
-        # UVS.inp['mc_photons']='100' # BG: mark out given defined above
+        
        
-        UVS.mc_basename=mc_basename_path+'mc_{:00004d}'.format(ia)+'_'+source
+        
     # -------------------------------------------------------------------------------------------
             
     # Aerosol
@@ -955,7 +880,7 @@ def SetRTM(UVS, ia, iacr, ACM3D=None, AMACD=None, ACMCOM=None, ACMRT=None, BMAFL
     ########## BG: testing to include AEROSOLS in source=='thermal' #################
     ########## changes made (27.08.2025) ############################################
     if aerosol: # and source=='solar':  
-        aero_tau_file_1D=input_dir+'tmp'+'{:00004d}'.format(ia)+'aero1D.dat'
+        aero_tau_file_1D=input_dir+'tmp'+f"{OrbitID}_{ia:04d}"+'aero1D.dat'
         f = open(aero_tau_file_1D,'w')
         nheights = ACMCOM.aerosol_extinction.shape[0]-1
         ih = 0
@@ -969,7 +894,6 @@ def SetRTM(UVS, ia, iacr, ACM3D=None, AMACD=None, ACMCOM=None, ACMRT=None, BMAFL
             aero_tau_tot=0.0
 
         ###############################
-        ##### Change to fixed AE #####
         if AMACD is not None:
             alpha_solar = AMACD.aerosol_angstrom_exponent[ia,iacr] # Use lmb=670-865nm range (not 355-670nm)
             if alpha_solar > 10:
@@ -1053,7 +977,6 @@ def SetRTM(UVS, ia, iacr, ACM3D=None, AMACD=None, ACMCOM=None, ACMRT=None, BMAFL
 
     # Surface
     if surface:
-        
         # BG: Ocean BRDF properties by Cox and Munk (1954) method
         # BG: Add if surface = Ocean (idx = 6)
         if ACMCOM.surface_albedo_classification[iacr, ia] == 6: # Shape [across_track, along_track] = open water
@@ -1064,7 +987,7 @@ def SetRTM(UVS, ia, iacr, ACM3D=None, AMACD=None, ACMCOM=None, ACMRT=None, BMAFL
 
 
         if RTdimension == '1D':                   
-            albedo_file=input_dir+'tmp'+'{:00004d}'.format(ia)+'albedo'+source+'.dat'
+            albedo_file=input_dir+'tmp'+f"{OrbitID}_{ia:04d}"+'albedo'+source+'.dat'
             UVS.inp['albedo_file']=albedo_file
             f = open(albedo_file,'w')
             # According to Qu et al., AMT, 2023, page 2320, section 2, the L2 plane is at j=0.
@@ -1074,13 +997,6 @@ def SetRTM(UVS, ia, iacr, ACM3D=None, AMACD=None, ACMCOM=None, ACMRT=None, BMAFL
             if source=='solar':
                 UVvisalb = ACMCOM.albedo_diffuse_radiation_surface_visible[iacr,ia]
                 NIRalb =   ACMCOM.albedo_diffuse_radiation_surface_near_infrared[iacr,ia]
-
-                ########## BG: TESTING REDUCING ALBEDO ########################
-                # print(f'UV_vis_albedo = {UVvisalb}\nNIR_albedo = {NIRalb}')
-                # r_factor = 0.75
-                # UVvisalb    = UVvisalb * r_factor
-                # NIRalb      = NIRalb * r_factor
-                ###############################################################
 
                 if UVvisalb>1.0 or NIRalb>1.0:
                     UVvisalb=NIRalb=0.0
@@ -1102,27 +1018,8 @@ def SetRTM(UVS, ia, iacr, ACM3D=None, AMACD=None, ACMCOM=None, ACMRT=None, BMAFL
             f.close()
                 
         elif RTdimension == '3D':       
-            # mc_albedo_file=input_dir+'tmp'+'{:00004d}'.format(ia)+'mc_albedo_file.dat'
-            # UVS.inp['mc_albedo_file']=mc_albedo_file
-            # dx = 1.0 # 1 km horizontal resolution
-            # dy = 1.0
-            # f = open(mc_albedo_file,'w')
-            # f.write('{:d} {:d} {:f} {:f}\n'.format(Nx, Ny, dx, dy))
-            # ix=1           
-            # iclines=0
-            # for iac in iacrosses:
-            #     iy=1
-            #     for ial in ialongs:
-            #         irec = ACM3D.index_construction[iac, ial]
-            #         UVvisalb = ACMCOM.albedo_diffuse_radiation_surface_visible[0,irec]
-            #         f.write('{:d} {:d} {:f}\n'.format(ix, iy, UVvisalb ))
-            #         iclines=iclines+1
-            #         iy=iy+1
-            #     ix=ix+1
-            # f.close()
-
-            mc_albedo_spectral_file=input_dir+'tmp'+'{:00004d}'.format(ia)+'mc_albedo_spectral_file'+source+'.dat'
-            mc_albedo_type=input_dir+'tmp'+'{:00004d}'.format(ia)+'mc_albedo_type'+source+'.dat'
+            mc_albedo_spectral_file=input_dir+'tmp'+f"{OrbitID}_{ia:04d}"+'mc_albedo_spectral_file'+source+'.dat'
+            mc_albedo_type=input_dir+'tmp'+f"{OrbitID}_{ia:04d}"+'mc_albedo_type'+source+'.dat'
             
             UVS.inp['mc_albedo_spectral_file']=mc_albedo_spectral_file 
             UVS.inp['mc_albedo_type']=mc_albedo_type
@@ -1136,8 +1033,11 @@ def SetRTM(UVS, ia, iacr, ACM3D=None, AMACD=None, ACMCOM=None, ACMRT=None, BMAFL
             for iac in iacrosses:
                 iy=1
                 for ial in ialongs:
-                    itype_index = 'itype_index_{:00004d}_{:00004d}_{:00004d}_{:00004d}.dat'.format(ia, iac, ial, 0)
-                    mc_albedo_type_file = input_dir+'tmp'+'{:00004d}_{:00004d}_{:00004d}_{:00004d}'.format(ia, iac, ial, 0)+'mc_albedo_spectral_type'+source+'.dat'
+                    # OLD 
+                    # itype_index = 'itype_index_{:00004d}_{:00004d}_{:00004d}_{:00004d}.dat'.format(ia, iac, ial, 0)
+                    # mc_albedo_type_file = input_dir+'tmp'+'{:00004d}_{:00004d}_{:00004d}_{:00004d}'.format(ia, iac, ial, 0)+'mc_albedo_spectral_type'+source+'.dat'
+                    itype_index = 'itype_index_{:00004d}_{:00004d}_{:00004d}_{:00004d}.dat'.format(ia, iac, ial, my_rank)
+                    mc_albedo_type_file = input_dir+'tmp'+'{:00004d}_{:00004d}_{:00004d}_{:00004d}'.format(ia, iac, ial, my_rank)+'mc_albedo_spectral_type'+source+'.dat'
                     fatf = open(mc_albedo_type_file,'w')
                     f.write('{:d} {:d} {:s}\n'.format(ix, iy, itype_index))
                     fat.write('{:s} {:s}\n'.format(itype_index, mc_albedo_type_file))
@@ -1171,65 +1071,6 @@ def SetRTM(UVS, ia, iacr, ACM3D=None, AMACD=None, ACMCOM=None, ACMRT=None, BMAFL
                     fatf.close()    
                     iclines=iclines+1
                     iy=iy+1
-                                # irec = ACM3D.index_construction[iac, ial]  # Teste å bytte ut iac, ial med irec, irec
-                                # # BG: modification for reduced swat-length
-                                # if "Orbit_05926C" in SceneName:   irec -= 2700 
-                                # elif "Orbit_06888C" in SceneName: irec -= 2527 
-                                # elif "Orbit_07277C" in SceneName: irec -= 2527
-                                # elif "Orbit_06331C" in SceneName: irec -= 2636
-
-                                # ###################### THIS IS NEW TEST - REMOVE #####################
-                                # irec = ial
-                                # iacr = iac
-                                # ######################################################################
-
-                                # itype_index = 'itype_index_{:00004d}_{:00004d}_{:00004d}_{:00004d}.dat'.format(ia, iac, ial, irec)
-                                # mc_albedo_type_file = input_dir+'tmp'+'{:00004d}_{:00004d}_{:00004d}_{:00004d}'.format(ia, iac, ial, irec)+'mc_albedo_spectral_type'+source+'.dat'
-                                # fatf = open(mc_albedo_type_file,'w')
-                                # f.write('{:d} {:d} {:s}\n'.format(ix, iy, itype_index))
-                                # fat.write('{:s} {:s}\n'.format(itype_index, mc_albedo_type_file))
-
-                                # if source=='solar':
-                                #     # ESO:
-                                #     UVvisalb = ACMCOM.albedo_diffuse_radiation_surface_visible[iacr,irec]
-                                #     UVNIRalb = ACMCOM.albedo_diffuse_radiation_surface_near_infrared[iacr,irec]
-
-                                #     fatf.write('{:f} {:f}\n'.format(200, UVvisalb ))
-                                #     fatf.write('{:f} {:f}\n'.format(700, UVvisalb ))
-                                #     fatf.write('{:f} {:f}\n'.format(701, UVNIRalb ))
-                                #     fatf.write('{:f} {:f}\n'.format(4500, UVNIRalb ))
-                                # elif source=='thermal':
-                                #     nwvl = ACMCOM.wavelengths_thermal_surface_emissivity.shape[0]
-                                #     cmtonm=1e-07
-                                #     for iwvl in np.arange(nwvl-1,-1,-1):
-                                #         #print(ACMCOM.wavelengths_thermal_surface_emissivity[iwvl] * 1e-04)
-                                #         # This should not happen. Is there some kind of inconsistency in the
-                                #         # synthetic data
-
-                                #         if ACMCOM.surface_emissivity_type_index[iacr,irec]>26:
-                                #             # ESO:
-                                #             # print("WARN: irec>=26 for ia {}".format(ia))
-                                #             albedo=0.0
-                                #         #elif ACMCOM.surface_emissivity_type_index[0,irec]<0:
-                                #         # ESO:
-                                #             # print("WARNING: surface_emissivity_type_index = {} > 26 for ia {}, irec {}".format(ACMCOM.surface_emissivity_type_index[iacr,irec], ia, irec))
-                                #         elif ACMCOM.surface_emissivity_type_index[iacr,irec]<0:
-                                #             albedo=0.0
-                                #             # print("WARNING, surface_emissivity_type_index = {} < 0  for ia {}, irec {}".format(ACMCOM.surface_emissivity_type_index[iacr,irec], ia, irec))
-                                #         else:
-                                #             #tms
-                                #             albedo = 1-ACMCOM.surface_emissivity_table[ACMCOM.surface_emissivity_type_index[iacr,irec]-1,iwvl]
-                                            
-
-                                #         wvl = 1./(ACMCOM.wavelengths_thermal_surface_emissivity[iwvl] * cmtonm)
-
-                                #         fatf.write('{:10.3f} {:8.5f}\n'.format(wvl, albedo))
-
-                                #     # Add one more longer wavelength to comply with Fu wavelength grid. Assume albedo is the same.
-                                #     fatf.write('{:10.3f} {:8.5f}\n'.format(110000, albedo))
-                                # fatf.close()    
-                                # iclines=iclines+1
-                                # iy=iy+1
                 ix=ix+1
             f.close()
             fat.close()
@@ -1237,7 +1078,7 @@ def SetRTM(UVS, ia, iacr, ACM3D=None, AMACD=None, ACMCOM=None, ACMRT=None, BMAFL
     # Elevation, add elevation file if surface not at 0.0
     if elevation and  RTdimension == '3D':
         
-        mc_elevation_file=input_dir+'tmp'+'{:00004d}'.format(ia)+'elevation.dat'
+        mc_elevation_file=input_dir+'tmp'+f"{OrbitID}_{ia:04d}"+'elevation.dat'
         UVS.inp['mc_elevation_file']= mc_elevation_file
 
         f = open(mc_elevation_file, 'w')
@@ -1248,14 +1089,8 @@ def SetRTM(UVS, ia, iacr, ACM3D=None, AMACD=None, ACMCOM=None, ACMRT=None, BMAFL
         for iac in iacrosses:
             iy=1
             for ial in ialongs:
-                # irec = ACM3D.index_construction[iac, ial] #BG: this is not in use!
-                # elevation = GetElevation(ACM3D.latitude[iac, ial], ACM3D.longitude[iac, ial])
-                # ESO: passing ia for debugging:
-                # dted.errors.NoElevationDataError: Specified location is not contained within DTED file: (54.6N,1.0E)
-
                 elevation = GetElevation(ACM3D.latitude[iac, ial], ACM3D.longitude[iac, ial], ia)
                
-                  
                 if elevation< 0.0001: elevation=0.0001
                 if iy==1: elevation0=elevation
                 if ix==1: elevation0s.append(elevation)
@@ -1290,11 +1125,8 @@ def SetRTM(UVS, ia, iacr, ACM3D=None, AMACD=None, ACMCOM=None, ACMRT=None, BMAFL
     UVS.inp['sza']=sza[0]
     UVS.inp['phi0']=phi0  # Azimuth is only needed for 3D, but it does not hurt for 1D.
 
-
-
-    
-
     return UVS
+
 
 def tmp_output_filename(iia, scene_name):
     """
@@ -1316,23 +1148,34 @@ def tmp_output_filename(iia, scene_name):
 
 
 if __name__ == "__main__":
-    if my_rank == 0:
-        start_time = datetime.now(timezone.utc) 
-        print("Run started at", start_time.isoformat())
+    
+    """
+    HOW TO RUN WITH MPI
+            nohup mpirun -n 8 python -u Make_RTM.py > output/RTM.log 2>&1 &
+            
+            to see elipsed time (etime): 
+                ps -p <PID> -o etime
+            
+            Simple: mpirun -n 8 python Make_RTM.py
+    """
+
+
+    
+    start_time = datetime.now(timezone.utc) 
+    # print("Run started at", start_time.isoformat())
 
 
 
     ##############################################################################################
     WANT_SUR = True         # zout at SUR or TOA
-    WANT_3D  = False        # MYSTIC or DISORT
+    WANT_3D  = True        # MYSTIC or DISORT
 
     verbose  = False        # Want verbose output from RTM
     want_ps  = False        # Psudospherical solver
         
-
                             
     which_buffer = 2
-            # 0: MCIPA   1:Test   2: 21x21   3: 41x41 
+    # 0: MCIPA   1:Test   2: 21x21   3: 41x41 
     ################################################################################################
 
    
@@ -1348,11 +1191,7 @@ if __name__ == "__main__":
                                             # If use TOA ->    e_up          +     not use reconstruced surface pixel
                                             # This applies to '_AllLevels' runs as well!
             # New mc_sample_grid
-    # additional_spesifications += '_21x21_SUR'
-    # additional_spesifications += '_21x21_TOA'
-            # DISORT
-    # additional_spesifications += '_SUR'
-    # additional_spesifications += '_TOA'
+    # additional_spesifications += '_21x21'
 
 
     if WANT_SUR: additional_spesifications += "_SUR"
@@ -1390,11 +1229,16 @@ if __name__ == "__main__":
         ("Juvvasshøe",  61.678,	8.369),  
     ]
 
-    # idx_range = np.arange(0,len(sites))
-    idx_range = np.arange(0,1)
+    idx_range = np.arange(0,len(sites))
+    # idx_range = np.arange(1,len(sites))
+    # idx_range = np.arange(0,1)
     sites = [sites[i] for i in idx_range]
+
+
+
+
     
-    DATA_FILES = Path("/homevip/bgre/Download/Frames_SurfaceOverpasses")
+    DATA_FILES = Path("/xnilu_wrk2/projects/NEVAR/data/CalVal/SurfaceOverpasses/") # OLD: Path("/homevip/bgre/Download/Frames_SurfaceOverpasses")
     for site, _, _ in sites:
         data_files = DATA_FILES / site
         with open(data_files / "OrbitIDs.txt", "r") as f:
@@ -1404,7 +1248,6 @@ if __name__ == "__main__":
                 StationList.append(site)
                 if my_rank == 0: print(line.strip(), end=" ")
             if my_rank == 0: print()   
-
 
 
 
@@ -1454,7 +1297,11 @@ if __name__ == "__main__":
     else:                             buffer_str = ''
 
     # ---------------------------------- Paths -----------------------------------------------
-    pathL2TestProducts_base = "/homevip/bgre/Download/Frames_SurfaceOverpasses" #'/xnilu_wrk2/projects/NEVAR/data/EarthCARE_Real/' # EarthCARE data
+    pathL2TestProducts_base = DATA_FILES 
+    #  "/xnilu_wrk2/projects/NEVAR/data/CalVal/SurfaceOverpasses/"  # OLD "/homevip/bgre/Download/Frames_SurfaceOverpasses" 
+    if "SLURM_JOB_ID" in os.environ:
+        pathL2TestProducts_base = Path("/scratch/bgre/SurfaceOverpasses")
+  
     RTInpOutPath = './tmpRTIO/'    # Folder to store the final results
     RTOutNetcdfPath = './RESULTS/'  # Folder name for netcdf result files
     uvspecpath = '/xnilu_wrk2/projects/NEVAR/libRadtran/bin/' # Folder to RTM code
@@ -1468,18 +1315,16 @@ if __name__ == "__main__":
     # Distribute OrbitIDs across MPI ranks. Each rank will process a subset of orbits.
     all_jobs = list(zip(StationList, OrbitIDs))
     my_jobs = all_jobs[my_rank::np_mpi]
-    if my_rank == 0:
-            print(f"MPI size = {np_mpi}. Rank 0 will process orbits {my_jobs}.")
-
+   
     for Station, OrbitID in my_jobs:
      
         # pathL2TestProducts = '/xnilu_wrk2/projects/NEVAR/data/CalVal/Pyranometers/' # EarthCARE data
-        pathL2TestProducts = pathL2TestProducts_base + f'/{Station}'
+        pathL2TestProducts = pathL2TestProducts_base / f'{Station}'
         
-        if my_rank == 0:
-            print("\n\n\n=================================================================================================================")
-            print("OrbitID    = ", OrbitID)
-            print("Specs      = ", ('SUR' if WANT_SUR else 'TOA') + ' - ' + rte_solver + ' - ' + RTdimension + ' - ' + additional_spesifications + ' - ' + buffer_str)
+        # if my_rank == 0:
+        #     print("\n\n\n=================================================================================================================")
+        #     print("OrbitID    = ", OrbitID)
+        #     print("Specs      = ", ('SUR' if WANT_SUR else 'TOA') + ' - ' + rte_solver + ' - ' + RTdimension + ' - ' + additional_spesifications + ' - ' + buffer_str)
             
             
 
@@ -1487,8 +1332,7 @@ if __name__ == "__main__":
         Product ='ALL_3D_'
         ProductPath = '*'+Product+'*'+OrbitID+'*'
         ProductFile = os.path.join(pathL2TestProducts, ProductPath, '*'+Product+'*.h5')     
-        try: ProductFile = sorted(glob.glob(ProductFile))[0]
-        except IndexError: print(f"\n     Skipping {OrbitID}. Do not find product {Product}"); continue
+        ProductFile = sorted(glob.glob(ProductFile))[0]
 
         if verbose: print('ProductFile', ProductFile)
         ACM3D = ReadEC.Scene(Name=OrbitID, verbose=verbose)  
@@ -1511,16 +1355,17 @@ if __name__ == "__main__":
                 lat_, lon_ = str(lat), str(lon)
                 break
         out = Find_Overpass_Info.find_track_values(ACMCOM.fn, lat_, lon_)
-        iacr  = out["across_index"] if WANT_SUR else 151
+        iacr  = out["across_index"] if WANT_SUR else 150
         ial   = out["along_index"]
         time_overpass = out["time_iso_utc"]
 
-        print(
-            # Station location for EarthCARE overpass  
-            f"\n    Across-track index : {iacr}"
-            f"\n    Along-track index  : {ial}")
-        print(f"    Overpass time (UTC): {time_overpass[:16].replace('T', ' ')}")
-        print("=================================================================================================================")
+
+        # print(
+        #     # Station location for EarthCARE overpass  
+        #     f"\n    Across-track index : {iacr}"
+        #     f"\n    Along-track index  : {ial}")
+        # print(f"    Overpass time (UTC): {time_overpass[:16].replace('T', ' ')}")
+        # print("=================================================================================================================")
         ##########################################################################################################################################################
 
           
@@ -1552,12 +1397,14 @@ if __name__ == "__main__":
         Product ='BMA_FLX'      #BBR fluxes
         ProductPath = '*'+Product+'*'+OrbitID+'*'
         ProductFile = os.path.join(pathL2TestProducts, ProductPath, '*'+Product+'*.h5')
-        ProductFile = sorted(glob.glob(ProductFile))[0]
+        try: ProductFile = sorted(glob.glob(ProductFile))[0]
+        except IndexError: print(f"\n     Skipping {OrbitID}. Do not find product {Product}"); continue
         if verbose: print('ProductFile', ProductFile)
         BMAFLX = ReadEC.Scene(Name=OrbitID, verbose=verbose)
-        BMAFLX.ReadEarthCAREh5(ProductFile, Resolution='StandardResolution', verbose=verbose)  #tms: "Resolution" is probably not relevant as long as 
-        #                                                                                             data file/path includes "libRad" in the name
-        #                                                                                             (Or "StandaResolution" is record in ntcdf-file)
+        # BMAFLX.ReadEarthCAREh5(ProductFile, Resolution='StandardResolution', verbose=verbose) 
+        BMAFLX.ReadEarthCAREh5(ProductFile, Resolution='SmallResolution', verbose=verbose) 
+        # SmallResolution = 5x10 km (along x across track)
+        
                                                                                                 
 
             
@@ -1585,7 +1432,6 @@ if __name__ == "__main__":
 
 
         
-        # nohup python -u Make_RTM.py > RTM.log 2>&1 &
 
         
 
@@ -1602,16 +1448,6 @@ if __name__ == "__main__":
         if 'AllLevels' in additional_spesifications:
             ialongs_range = 20
             ialongs = np.arange(ial - ialongs_range, ial + ialongs_range+1, 1)
-            
-
-        #### Printing BMAFLX values for comparison ##############:
-        if not WANT_SUR:
-            indlatBMAFLX = np.unravel_index(np.argmin(np.abs(BMAFLX.latitude - ACMCOM.latitude_active[ial]), axis=None), BMAFLX.latitude.shape)
-            BMAFLX_solar_eup =  BMAFLX.solar_combined_top_of_atmosphere_flux[indlatBMAFLX] if np.isin(BMAFLX.quality_status[indlatBMAFLX], [0, 1, 2, 3, 4]) else np.nan
-            # print(f"BMAFLX_solar_eup   ia={ial} = {BMAFLX_solar_eup:.2f} W/m2    quality status", BMAFLX.quality_status[indlatBMAFLX])
-                
-
-                
         # -------------------------------------------------------------------------------------------
 
 
@@ -1621,7 +1457,6 @@ if __name__ == "__main__":
    
         # Parallelize over OrbitIDs instead of along-track points.
         # Each MPI rank will process all ialongs for its assigned orbit in sequence.
-        first_iter=True
         
         for ia in ialongs:
             latitude_wanted = ACMCOM.latitude_active[ia]
@@ -1653,7 +1488,7 @@ if __name__ == "__main__":
                         if source=='solar':
                             if sza >= 90:
                                 RTM=False
-                                print(f"\n      Terminate run. SZA = {sza.squeeze():.2f} > 90\n")
+                                # print(f"\n      Terminate run. SZA = {sza.squeeze():.2f} > 90\n")
                             mol_abs_param = 'kato2' #'reptran course' #
                         elif source=='thermal':
                             mol_abs_param = 'fu' 
@@ -1668,13 +1503,17 @@ if __name__ == "__main__":
                                         mc_basename_path=RTInpOutPath, RTdimension = RTdimension, input_dir=RTInpOutPath,
                                         mol_abs_param=mol_abs_param, data_dir=RTMdata, source=source, SceneName=OrbitID)
                             if UVS.status == 'OK':
-                                uvspecInputFile=RTInpOutPath+'tmp'+'{:00004d}'.format(ia)+source+str(my_rank)+'.inp'                            
+                                # uvspecInputFile=RTInpOutPath+'tmp'+'{:00004d}'.format(ia)+source+str(my_rank)+'.inp'  
+                                # NEW TEST
+                                uvspecInputFile=RTInpOutPath+'tmp'+f"{OrbitID}_{ia:04d}"+source+str(my_rank)+'.inp'     
                                 uvspecOutputFile=uvspecInputFile.replace('inp','out')
                                 UVS.WriteInputFile(uvspecInputFile)
-                                try:
-                                    UVS.SingleRun(uvspecInputFile, uvspecOutputFile, verbose=False, uvspecpath=uvspecpath)
-                                except Exception as e:
-                                    print(f"[WORKER {my_rank}] Exception in SingleRun for ia={ia}, source={source}: {e}")
+
+                                status = UVS.SingleRun(uvspecInputFile, uvspecOutputFile, verbose=False, uvspecpath=uvspecpath)
+                                if status != 0: 
+                                    # Successfull run -> status = 0
+                                    print(f"[WORKER {my_rank}] uvspec (SingleRun) failed for ia={ia} Orbit_{OrbitID} (Status = {status})")
+                                    continue
 
 
                                 if UVS.inp['rte_solver']=='montecarlo': ######################## MYSTIC
@@ -1704,17 +1543,13 @@ if __name__ == "__main__":
 
                                         
                                     except (FileNotFoundError, ValueError) as e:
-                                        print(Nx,Ny)
-                                        # print(mc_flx_eup.shape)
                                         print(f"[WORKER {my_rank}] WARNING: Could not read MC output for ia={ia}, source={source}. Skipping. Error: {e}")
-                                        continue  # Go to the next iteration
+                                        # continue  # Go to the next iteration
                                 
                                     if source=='solar':   
                                         if WANT_SUR:
                                             e_solar_std = edir_std + edn_std
                                             e_solar     = mc_flx_dir + mc_flx_dn
-                                            
-
                                             # print('direct + diffuse solar flux at SUR = ', e_solar, '\n with direct flux = ', mc_flx_dir, ' and diffuse flux = ', mc_flx_dn)
                                         else:
                                             e_solar_std = eup_std
@@ -1769,31 +1604,32 @@ if __name__ == "__main__":
 
                         
 
-                        if rte_solver=='montecarlo':
-                            ix_center = e_solar.shape[0] // 2
-                            iy_center = e_solar.shape[1] // 2
+                        if rte_solver=='montecarlo': 
+                            if not hasattr(e_solar, "shape"):
+                                # raise ValueError("Simulated solar flux has no shape (simulation was not successful)")    
+                                e_solar_center = np.nan
+                                e_solar_std_center = np.nan
+                                e_thermal_center = np.nan
+                                e_thermal_std_center = np.nan                        
                         
-                            if 'AllLevels' in additional_spesifications:
+                            elif 'AllLevels' in additional_spesifications:
                                 ix_center = e_solar.shape[1] // 2
                                 iy_center = e_solar.shape[2] // 2
-                                if hasattr(e_solar_std, "shape"):
-                                    e_solar_std_center = e_solar_std[:, ix_center, iy_center]
-                                if hasattr(e_solar, "shape"):
-                                    e_solar_center = e_solar[:, ix_center, iy_center]
-                                if hasattr(e_thermal_std, "shape"):
-                                    e_thermal_std_center = e_thermal_std[:, ix_center, iy_center]
-                                if hasattr(e_thermal, "shape"):
-                                    e_thermal_center = e_thermal[:, ix_center, iy_center]
+                                
+                                if hasattr(e_solar_std, "shape"):   e_solar_std_center      = e_solar_std[:, ix_center, iy_center]
+                                if hasattr(e_solar, "shape"):       e_solar_center          = e_solar[:, ix_center, iy_center]
+                                if hasattr(e_thermal_std, "shape"): e_thermal_std_center    = e_thermal_std[:, ix_center, iy_center]
+                                if hasattr(e_thermal, "shape"):     e_thermal_center        = e_thermal[:, ix_center, iy_center]
                             else: 
-                                if hasattr(e_solar_std, "shape"):
-                                    e_solar_std_center = float(e_solar_std[ix_center, iy_center])
-                                if hasattr(e_solar, "shape"):
-                                    e_solar_center = float(e_solar[ix_center, iy_center])
-                                if hasattr(e_thermal_std, "shape"):
-                                    e_thermal_std_center = float(e_thermal_std[ix_center, iy_center])
-                                if hasattr(e_thermal, "shape"):
-                                    e_thermal_center = float(e_thermal[ix_center, iy_center])
-                            print("ix_center, iy_center", ix_center, iy_center)
+                                ix_center = e_solar.shape[0] // 2
+                                iy_center = e_solar.shape[1] // 2
+
+                                if hasattr(e_solar_std, "shape"):   e_solar_std_center      = float(e_solar_std[ix_center, iy_center])
+                                if hasattr(e_solar, "shape"):       e_solar_center          = float(e_solar[ix_center, iy_center])
+                                if hasattr(e_thermal_std, "shape"): e_thermal_std_center    = float(e_thermal_std[ix_center, iy_center])
+                                if hasattr(e_thermal, "shape"):     e_thermal_center        = float(e_thermal[ix_center, iy_center])
+
+                            # print("ix_center, iy_center", ix_center, iy_center)                              
                         else:
                             e_solar_center     = e_solar
                             e_thermal_center   = e_thermal
@@ -1803,35 +1639,48 @@ if __name__ == "__main__":
                             print(e_solar_center)
                             print(e_solar_std)
                         else:
-                            e_str = f"{e_solar_center:.2f}" if source=='solar' else f"{e_thermal_center:.2f}"
-                            std_str = f"+- {e_solar_std_center:.2f}" if 'montecarlo' in rte_solver else ''
-                            print(
-                                f"      |-------------------------- ia={ia:4} {Station:20}-------------------------|\n"
-                                f"      |                   Mean flux ({source}) = {e_str} {std_str} W/m2\n"
-                                 "      |--------------------------------------------------------------------------------|\n"
+                            e_str = f"{e_solar_center:7.1f}" if source=='solar' else f"{e_thermal_center:7.1f}"
+                            std_str = f"+- {e_solar_std_center:.1f}" if 'montecarlo' in rte_solver else ''
+                            print("\n\n\n"
+                                f"      |{Station:^15} ia={ia:4} {OrbitID:6} -------------------------------------------------|\n"
+                                f"      |                                   Flux ({source}) = {e_str} {std_str} W/m2\n"
+                                 "      |--------------------------------------------------------------------------------|"
                             )
-                        ###################################
-
-                        
+                            if not WANT_SUR: # Printing BMAFLX values for comparison ##############:
+                                indlatBMAFLX = np.unravel_index(np.argmin(np.abs(BMAFLX.latitude - ACMCOM.latitude_active[ial]), axis=None), BMAFLX.latitude.shape)
+                                qs = int(np.asarray(BMAFLX.quality_status[indlatBMAFLX]).squeeze())
+                                flux = float(np.asarray(BMAFLX.solar_combined_top_of_atmosphere_flux[indlatBMAFLX]).squeeze())
+                                BMAFLX_solar_eup = flux if qs in (0, 2) else np.nan
+                                    #               Quality status BMA-FLX 
+                                    #     0: Both thermal and solar fluxes are fully trustful; 
+                                    #     1: Only thermal flux is fully trustful; 
+                                    #     2: Only solar flux is fully trustful; 
+                                    #     3: Both thermal and solar fluxes are valid but not fully trustful; 
+                                    #     4: Neither thermal nor solar fluxes are valid 
+                                # val_str = f"{BMAFLX_solar_eup:7.2f}" if np.isfinite(BMAFLX_solar_eup) else f"{np.nan:7.2f}"
+                                print(
+                                    f"      |                                         BMAFLX = {BMAFLX_solar_eup:7.1f}  W/m2\n"
+                                     "      |--------------------------------------------------------------------------------|")
+                                if sza >= 90: 
+                                    print(f"      |------ nan -> SZA = {sza.squeeze():^6.2f}  > 90 -----------------------------------------------|\n")
                     
-
 
                     except Exception as e:
-                        print(f"[WORKER {my_rank}] Unexpected exception for ia={ia}: {e}")
+                        print(f"\n[WORKER {my_rank:2}] Exception for ia={ia:4} Orbit_{OrbitID}: {e}\n")
             
 
-            # ESO: Write the results to text file, to avoid redoing the whole simulation
-            # if the job is aborted.
-            if rte_solver=='montecarlo':
-                if first_iter:
-                    first_iter=False
-                    file_mode= 'w'
-                else:
-                    file_mode= 'a'
+            # # ESO: Write the results to text file, to avoid redoing the whole simulation
+            # # if the job is aborted.
+            # if rte_solver=='montecarlo':
+            #     if first_iter:
+            #         first_iter=False
+            #         file_mode= 'w'
+            #     else:
+            #         file_mode= 'a'
                     
-                with open(os.path.join(RTOutNetcdfPath, OrbitID + "-" +str(my_rank)),file_mode) as f:
-                    # BG: New
-                    f.write("{:6d} {} {} {} {}\n".format(ia, e_solar, e_solar_std, e_thermal, e_thermal_std))
+            #     with open(os.path.join(RTOutNetcdfPath, OrbitID + "-" +str(my_rank)),file_mode) as f:
+            #         # BG: New
+            #         f.write("{:6d} {} {} {} {}\n".format(ia, e_solar, e_solar_std, e_thermal, e_thermal_std))
             
             
 
@@ -1865,19 +1714,21 @@ if __name__ == "__main__":
         src = ','.join([i for i in sources])
         if 'montecarlo' in rte_solver:
             if 'AllLevels' in additional_spesifications:
-                libRad.WriteNetcdf_all_levels(RTOutNetcdfPath+'libRad_' + libRad_version + '_' + src + '_' + OrbitID + '_' + Station + additional_spesifications + '.nc', shape=(Nx,Ny))
+                libRad.WriteNetcdf_all_levels(RTOutNetcdfPath+'libRad_' + libRad_version + '_' + src + '_' + OrbitID + '_' + Station + additional_spesifications + '.nc', shape=(Nx,Ny), verbose=False)
             else: 
-                libRad.WriteNetcdf_mc_sample_grid(RTOutNetcdfPath+'libRad_'+libRad_version+'_'+src+'_'+OrbitID + '_' + Station + additional_spesifications + '.nc', shape=(Nx,Ny))
+                libRad.WriteNetcdf_mc_sample_grid(RTOutNetcdfPath+'libRad_'+libRad_version+'_'+src+'_'+OrbitID + '_' + Station + additional_spesifications + '.nc', shape=(Nx,Ny), verbose=False)
         else:
             if 'AllLevels' in additional_spesifications:
-                libRad.WriteNetcdf_all_levels(RTOutNetcdfPath+'libRad_' + libRad_version + '_' + src + '_' + OrbitID + '_' + Station + additional_spesifications + '.nc')
+                libRad.WriteNetcdf_all_levels(RTOutNetcdfPath+'libRad_' + libRad_version + '_' + src + '_' + OrbitID + '_' + Station + additional_spesifications + '.nc', verbose=False)
             else: 
-                libRad.WriteNetcdf(RTOutNetcdfPath + 'libRad_' + libRad_version + '_' + src + '_' + OrbitID + '_' + Station + additional_spesifications + '.nc')
+                libRad.WriteNetcdf(RTOutNetcdfPath + 'libRad_' + libRad_version + '_' + src + '_' + OrbitID + '_' + Station + additional_spesifications + '.nc', verbose=False)
+
+
     
 
-    if my_rank == 0:
-        tt = datetime.now(timezone.utc) - start_time
-        print("Run finished. It took {:.3f} hours \n\n\n\n\n\n\n".format(tt.total_seconds()/3600))
+
+    # tt = datetime.now(timezone.utc) - start_time
+    # print(f"            Worker {my_rank:2} finished run. It took {tt.total_seconds()/3600:.2f} hours \n\n\n\n\n\n\n")
 
     MPI.Finalize()
     

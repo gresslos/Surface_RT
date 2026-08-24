@@ -741,6 +741,9 @@ def AssDomain(data, shape=(11,11)):
     # print('     Removed Buffer -> data.shape:', data.shape)
     # print('----------------------------------------------------\n\n')
 
+    if np.all(np.isnan(data)):
+        return np.nan
+    
     data = np.nanmean(data, axis=(0,1))
     return data
 
@@ -753,111 +756,144 @@ class Scene:
         self.verbose=verbose
         return
 
-    def ExtractData(self, ia, shape=(1,1), idx_scene=None, BMAFLX=None, pyranometer_data=None, want_info=False):
+    def ExtractData(self, ia, shape=(1,1), idx_scene=None, pyranometer_data=None, want_info=False):
         data = self.solar_eup[ia]
         
         if 'montecarlo' in self.fn:
-            data = AssDomain(data, size=shape)
+            data = AssDomain(data, shape=shape)
         elif 'disort' in self.fn and want_average_line:
             w_size = 10 # Match BBR footprint
             data = np.convolve(data, np.ones(w_size), 'same') / w_size
 
-        if want_info:
-            print(f"Extracted data from {self.fn}:\n"
-                f"shape {shape}\n\n |------------------------|\n"
-                f" |     data  = {data:6.2f}     |\n" 
-                f" |------------------------|\n"
-            )
-            if 'TOA' in self.fn: 
-                # BMAFLX = BMAFLX.solar_combined_top_of_atmosphere_flux
-                # print(f'    BMAFLX = {BMAFLX}')
-                1
-            else:
-                # pyranometer_data = np.loadtxt('DATA/SUR_Observations.txt') # Called outside OrbitIDs loop
-                pyranometer_data = pyranometer_data[idx_scene]
-                print(f'    pyranometer = {pyranometer_data}\n\n\n')
+
+        # print(data, libRad.fn)
+        # return
+
+
+        # ACM-COM QS Filtering to libRadtran data: 
+        qs = int(np.asarray(ACMCOM.quality_status[ia]).squeeze())
+        # F_libRad = data if qs in (0, 1) else np.nan
+        F_libRad = data if qs == 0 else np.nan
+
+        # Write RTM result to file
+        flux_file.write(f'{F_libRad:8.2f} {libRad.fn} \n')
+
 
 
         
-        flux_file.write(f'{data:8.2f} {libRad.fn} \n')
-        # info_file.write(f'{SceneName} {ia:4},{iacr:3} {source_str:8} {data:.2f} W/m2   ({ProductFile})\n')
+        
 
+
+        if want_info:
+            print(f"Extracted data from {self.fn}:\n\n"
+                # f"shape {shape}\n\n"
+                 " |------------------------|\n"
+                f" |     data  = {F_libRad:6.1f}     |\n" 
+                f" |------------------------|"
+            )
+
+
+            if WANT_SUR:
+                # pyranometer_data = np.loadtxt('DATA/SUR_Observations.txt') # Called outside OrbitIDs loop
+                obs_val = pyranometer_data[idx_scene]
+                print(f" |  pyranometer = {obs_val:6.1f}  |\n"
+                       " |------------------------|\n")
+            else:
+                # Extract BMA-FLX data
+                indlatBMAFLX = np.unravel_index(np.argmin(np.abs(BMAFLX.latitude - ACMCOM.latitude_active[ial]), axis=None), BMAFLX.latitude.shape)
+                qs = int(np.asarray(BMAFLX.quality_status[indlatBMAFLX]).squeeze())
+                flux = float(np.asarray(BMAFLX.solar_combined_top_of_atmosphere_flux[indlatBMAFLX]).squeeze())
+                BMAFLX_solar_eup = flux if qs in (0, 2) else np.nan
+                                                        #               Quality status BMA-FLX 
+                                                        #     0: Both thermal and solar fluxes are fully trustful; 
+                                                        #     1: Only thermal flux is fully trustful; 
+                                                        #     2: Only solar flux is fully trustful; 
+                                                        #     3: Both thermal and solar fluxes are valid but not fully trustful; 
+                                                        #     4: Neither thermal nor solar fluxes are valid 
+                if write_BMAFLX_to_file:
+                    # Already done
+                    # Specs: SmallResolution, QualityStatus 0 or 2 -> solar fully trustfull
+                    with open("DATA/TOA_Observations.txt", "a") as BMAFLX_file:
+                        BMAFLX_file.write(f"{BMAFLX_solar_eup:.2f}\n")
+
+                print(f" |    BMAFLX = {BMAFLX_solar_eup:6.1f}     |\n"
+                       " |------------------------|\n")
+                
         return
                                                                                                        
     
-    def plot_temporal_pyranometer(self, filename="SUR/pyranometer_temporal.csv"):
-        data = np.genfromtxt(
-            filename,
-            delimiter=";",
-            skip_header=1, # skip header
-            dtype=str
-        )
-       # Keep only rows with valid time + flux
-        time = []
-        flux = []
+    # def plot_temporal_pyranometer(self, filename="SUR/pyranometer_temporal.csv"):
+    #     data = np.genfromtxt(
+    #         filename,
+    #         delimiter=";",
+    #         skip_header=1, # skip header
+    #         dtype=str
+    #     )
+    #    # Keep only rows with valid time + flux
+    #     time = []
+    #     flux = []
 
-        for row in data:
-            try:
-                t = datetime.strptime(row[2], "%d.%m.%Y %H:%M") + timedelta(hours=1)
-                f = float(row[3].replace(",", "."))
-                time.append(t)
-                flux.append(f)
-            except:
-                continue  # skip footer / bad rows
+    #     for row in data:
+    #         try:
+    #             t = datetime.strptime(row[2], "%d.%m.%Y %H:%M") + timedelta(hours=1)
+    #             f = float(row[3].replace(",", "."))
+    #             time.append(t)
+    #             flux.append(f)
+    #         except:
 
-        time = np.array(time)
-        flux = np.array(flux)
+    #     time = np.array(time)
+    #     flux = np.array(flux)
 
-        # Time of interest
-        mark_time = datetime(2024, 9, 14, 16, 5)
-        # Find closest index
-        idx = np.argmin(np.abs(time - mark_time))
+    #     # Time of interest
+    #     mark_time = datetime(2024, 9, 14, 16, 5)
+    #     # Find closest index
+    #     idx = np.argmin(np.abs(time - mark_time))
 
-        # ---- Plot ----
-        fig, ax = plt.subplots(figsize=(10, 4))
+    #     # ---- Plot ----
+    #     fig, ax = plt.subplots(figsize=(10, 4))
 
-        ax.plot(time, flux)
-        ax.plot(time[idx], flux[idx], "ro", markersize=5, label="Reference observation")  # red dot
-
-
-        ax.set_ylabel(r"Pyranometer $F_{\mathrm{SUR}}^{\downarrow}$ [W/m$^2$]")
-        ax.set_xlabel("Local Time [UTC+2]")
+    #     ax.plot(time, flux)
+    #     ax.plot(time[idx], flux[idx], "ro", markersize=5, label="Reference observation")  # red dot
 
 
-        ax.xaxis.set_major_locator(mdates.HourLocator(interval=2))
-        ax.xaxis.set_major_formatter(mdates.DateFormatter("%H:%M"))
+    #     ax.set_ylabel(r"Pyranometer $F_{\mathrm{SUR}}^{\downarrow}$ [W/m$^2$]")
+    #     ax.set_xlabel("Local Time [UTC+2]")
+
+
+    #     ax.xaxis.set_major_locator(mdates.HourLocator(interval=2))
+    #     ax.xaxis.set_major_formatter(mdates.DateFormatter("%H:%M"))
     
-        title = "Observed Temporal Surface Downward SW Flux (Pyranometer)"
-        fig.suptitle(title, fontsize=FONTSIZE, y=.93)
+    #     title = "Observed Temporal Surface Downward SW Flux (Pyranometer)"
+    #     fig.suptitle(title, fontsize=FONTSIZE, y=.93)
 
-        ax.legend(  loc='upper left', 
-                    framealpha=0.9, 
-                    borderaxespad=0.0,                   # space to axes
-                    borderpad=0.25, labelspacing=0.25,   # compact box
-                    markerscale=1.5, # -> increase dot sizes to see on plot
-                    fontsize=INFOSIZE*.8)
+    #     ax.legend(  loc='upper left', 
+    #                 framealpha=0.9, 
+    #                 borderaxespad=0.0,                   # space to axes
+    #                 borderpad=0.25, labelspacing=0.25,   # compact box
+    #                 markerscale=1.5, # -> increase dot sizes to see on plot
+    #                 fontsize=INFOSIZE*.8)
        
-        # BG: ----- plot-adjustments for nicer looking plots -----------
-        fig.tight_layout()
-        ax.set_facecolor('#f0f0f0') # Axes background (warm light grey)
-        # Grid: major dashed, minor dotted
-        ax.grid(which='major', linestyle='--', alpha=0.4)
-        ax.grid(which='minor', linestyle=':',  alpha=0.2)
-        ax.minorticks_on()
+    #     # BG: ----- plot-adjustments for nicer looking plots -----------
+    #     fig.tight_layout()
+    #     ax.set_facecolor('#f0f0f0') # Axes background (warm light grey)
+    #     # Grid: major dashed, minor dotted
+    #     ax.grid(which='major', linestyle='--', alpha=0.4)
+    #     ax.grid(which='minor', linestyle=':',  alpha=0.2)
+    #     ax.minorticks_on()
 
-        # remove top/right border
-        for spine in ['top','right']:
-            ax.spines[spine].set_visible(False)
-        # -------------------------------------------------------------
+    #     # remove top/right border
+    #     for spine in ['top','right']:
+    #         ax.spines[spine].set_visible(False)
+    #     # -------------------------------------------------------------
         
        
-        pngfile = (plotdir_base + 'pyranometer_temporal_Orbit01690C.png')
+    #     pngfile = (plotdir_base + 'pyranometer_temporal_Orbit01690C.png')
 
-        print("pngfile", pngfile)
-        plt.savefig(pngfile)
-        plt.close()
+    #     print("pngfile", pngfile)
+    #     plt.savefig(pngfile)
+    #     plt.close()
 
-        return
+    #     return
             
     def plot_all_levels(self, Scene2=None, idx_scene=None, ia=None):
         fig = plt.figure(figsize=(10,4))
@@ -1644,7 +1680,7 @@ if __name__ == "__main__":
 
      
     WANT_3D  = False      # BG: used in flux plot (DISORT or MYSTIC)
-    WANT_SUR = True
+    WANT_SUR = False
 
 
     ToDo_idx = 0
@@ -1666,6 +1702,7 @@ if __name__ == "__main__":
     if want_info: want_2D = False               # CF of 2D swat, or 1D nadir column
     stacked             = True                  # If add quanteties to plot, if should get own figure below
     verbose             = False
+    write_BMAFLX_to_file= False                 # If make TOA_Observation.txt (use "a": append)
 
     # Notes:
     # Run with verbose -> printing -> 0.12h
@@ -1716,11 +1753,11 @@ if __name__ == "__main__":
     ]
 
     idx_range = np.arange(0,len(sites))
-    idx_range = np.arange(0,1)
+    # idx_range = np.arange(0,1)
     sites = [sites[i] for i in idx_range]
 
 
-    DATA_FILES = Path("/homevip/bgre/Download/Frames_SurfaceOverpasses")
+    DATA_FILES = Path("/xnilu_wrk2/projects/NEVAR/data/CalVal/SurfaceOverpasses/") # OLD Path("/homevip/bgre/Download/Frames_SurfaceOverpasses")
 
     # Locate start-index to start extracting observations from SUR_Observations.txt
     start_idx = 0 
@@ -1736,7 +1773,7 @@ if __name__ == "__main__":
     for site, _, _ in sites:
         data_files = DATA_FILES / site
         with open(data_files / "OrbitIDs.txt", "r") as f:
-            print (f"\nOrbitsIDs for {site}:")
+            print(f"\nOrbitsIDs for {site}:")
             for line in f:
                 OrbitIDs.append(line.strip())
                 StationList.append(site)
@@ -1758,10 +1795,8 @@ if __name__ == "__main__":
             # New mc_sample_grid
 
 
-
-
-    if WANT_SUR:    additional_spesifications += '_21x21_SUR' if WANT_3D else '_SUR'
-    else:           additional_spesifications += '_21x21_TOA' if WANT_3D else '_TOA'
+    if WANT_SUR:    additional_spesifications += '_SUR'          #'_21x21_SUR' if WANT_3D else '_SUR'
+    else:           additional_spesifications += '_TOA'          #'_21x21_TOA' if WANT_3D else '_TOA'
 
     if 'plot_all_levels' in ToDo:
         additional_spesifications = '_AllLevels'
@@ -1783,7 +1818,7 @@ if __name__ == "__main__":
 
   
     
-    pathL2TestProducts_base = "/homevip/bgre/Download/Frames_SurfaceOverpasses" # pathL2TestProducts  = '/xnilu_wrk2/projects/NEVAR/data/EarthCARE_Real/'  
+    pathL2TestProducts_base = "/xnilu_wrk2/projects/NEVAR/data/CalVal/SurfaceOverpasses/" 
     ProductPathRTM      = './RESULTS/' # './netcdf/' 
     plotdir_base        = './figures/'   
 
@@ -1819,45 +1854,13 @@ if __name__ == "__main__":
     obs_level = 'SUR_' if WANT_SUR else 'TOA_'
     folder    = 'DATA/'
     out_file_name1 = folder + obs_level + rte_specs + ".txt"
-    # out_file_name2 = folder + obs_level + rte_specs + "output_fluxes_INFO.txt"
 
-    pyranometer_data = np.loadtxt("DATA/SUR_Observations.txt")
+    pyranometer_data = np.loadtxt("DATA/SUR_Observations.txt", usecols=0)
+  
 
-
-
-
-    with open(out_file_name1, "w") as flux_file: #, open(out_file_name2, "w") as info_file:
-        # info_file.write(f'{"SUR" if WANT_SUR else "TOA"} {rte_specs}\n'
-        #                 'SceneName ial,iacr Source Flux (Product) \n'
-        #                 '-----------------------------------\n')
-        
+    with open(out_file_name1, "w") as flux_file: 
         for OrbitID, Station in zip(OrbitIDs, StationList):
             pathL2TestProducts = pathL2TestProducts_base + f'/{Station}'
-            
-            if WANT_3D:
-                mode_folder = 'MYSTIC/'
-            else:
-                if want_ps:
-                    mode_folder = 'PSEUDOSPHERICAL/'
-                else:
-                    mode_folder = 'DISORT/' #'TWOSTR/' 
-
-
-
-
-
-
-            # plotdir = os.path.join(plotdir_base, SceneName, mode_folder)
-            # png_spesifications = ''
-            
-
-            # # Make sure it exists
-            # os.makedirs(plotdir, exist_ok=True)
-            # print(f'Direcotry for figures: {plotdir}')
-            # -------------------------------------------------------
-
-
-
 
 
 
@@ -1867,78 +1870,45 @@ if __name__ == "__main__":
             Product ='ALL_3D_'#'ACM_COM' #'ACM_3D_'#'ACM_COM' #
             ProductPath = '*'+Product+'*'+OrbitID+'*'
             ProductFile = os.path.join(pathL2TestProducts, ProductPath, '*'+Product+'*.h5')
-            try: 
-                ProductFile = sorted(glob.glob(ProductFile))[0]
-            except IndexError: # If do not have all products (ALL_3D here), do not have run simulations! Skipping
-                print(f"\n     Skipping {OrbitID}. Do not find product {Product}") 
-                if ToDo == "ExtractData": 
-                    flux_file.write(f'{np.nan:8.2f} {OrbitID}. Not all data products found. Not simulated. \n')
-                continue
+            ProductFile = sorted(glob.glob(ProductFile))[0]
             ACM3D = Scene(Name=OrbitID, verbose=verbose)
             ACM3D.ReadEarthCAREh5(ProductFile, verbose=verbose)
             ACM3D.SetExtent()
             
-                        # indlat = find_nearest_id(ACM3D.latitude,latitude_wanted)
-                        # latitude_have_ACM3D = ACM3D.latitude.flatten()[indlat]
-                        # val = latitude_wanted
-                        # e=ACM3D.latitude
-                        # nearest = np.unravel_index(np.argmin(np.abs(e - val), axis=None), e.shape)
+
             # Extract Baseline ---------------------------   
             parts = ProductFile.split("ECA_EX", 1)
             out = parts[1][:2] if len(parts) > 1 else None
             if   out == 'BA': BA_baseline += ' ALL_3D'
             elif out == 'AC': AC_baseline += ' ALL_3D'
             elif out == 'BB': BB_baseline += ' ALL_3D'
-            # print(out)
             #---------------------------------------------
-
-            # Product ='ACM_RT_'#'ACM_COM' #
-                # #ProductPath = 'ECA_EXAB_'+Product+'*'  #'ECA_EXAA_'+Product+'*'
-                # #ProductPath = 'ECA_EXAB_'+Product+'*' #BG: marked out this for Orbit_05926C
-                # # ProductPath = 'ECA_EXAC_'+Product+'*'
-                # ProductPath = '*'+Product+'*'
-                # ProductFile = os.path.join(pathL2TestProducts, SceneName, 'output', ProductPath, '*'+Product+'*.h5')
-                # ProductFile = sorted(glob.glob(ProductFile))[0]
-                # ACMRT = Scene(Name=SceneName, verbose=verbose)
-                # ACMRT.ReadEarthCAREh5(ProductFile, verbose=verbose)
-                # ACMRT.SetExtent()
-                # # Extract Baseline ---------------------------   
-                # parts = ProductFile.split("ECA_EX", 1)
-                # out = parts[1][:2] if len(parts) > 1 else None
-                # if   out == 'BA': BA_baseline += ' ACM_RT'
-                # elif out == 'AC': AC_baseline += ' ACM_RT'
-                # elif out == 'BB': BB_baseline += ' ACM_RT'
-                # # print(out)
-                #---------------------------------------------
             
             Product ='BMA_FLX'
             ProductPath = '*'+Product+'*'+OrbitID+'*'
             ProductFile = os.path.join(pathL2TestProducts, ProductPath, '*'+Product+'*.h5')
-            ProductFile = sorted(glob.glob(ProductFile))[0]
+            try: 
+                ProductFile = sorted(glob.glob(ProductFile))[0]
+            except IndexError: 
+                # If do not have all products (BMAFLX here), did not simulate frame! Skipping
+                print(f"\n     Skipping {OrbitID}. Do not find product {Product}") 
+                continue
+            
             BMAFLX = Scene(Name=OrbitID, verbose=verbose)
-            BMAFLX.ReadEarthCAREh5(ProductFile, Resolution='StandardResolution', verbose=verbose)
+            # BMAFLX.ReadEarthCAREh5(ProductFile, Resolution='StandardResolution', verbose=verbose)
+            BMAFLX.ReadEarthCAREh5(ProductFile, Resolution='SmallResolution', verbose=verbose) 
+            """
+            SmallResolution =  5x10 km (along x across track)
+            FullResolution  = 10x10 km
+            """
             BMAFLX.SetExtent()
-                        # indlat = find_nearest_id(BMAFLX.latitude,latitude_wanted)
-                        # latitude_have_BMAFLX = BMAFLX.latitude.flatten()[indlat]
-                        # val = latitude_wanted
-                        # e=BMAFLX.latitude
-                        # nearest = np.unravel_index(np.argmin(np.abs(e - val), axis=None), e.shape)
-
-            # if len(plot_types_librad)>0 and len(plot_types_flx)>0:
-            #     indlats=[]
-            #     for latitude_wanted in libRad.latitude:
-            #         nearest = np.unravel_index(np.argmin(np.abs(BMAFLX.latitude - latitude_wanted), axis=None), BMAFLX.latitude.shape)
-            #         indlats.append(nearest[0])
-            #     libRad.BMAFLXindlats = indlats
+                        
             # Extract Baseline ---------------------------   
             parts = ProductFile.split("ECA_EX", 1)
             out = parts[1][:2] if len(parts) > 1 else None
             if   out == 'BA': BA_baseline += ' ' + Product
             elif out == 'AC': AC_baseline += ' ' + Product
             elif out == 'BB': BB_baseline += ' ' + Product
-            
-
-            # print(out)
             #---------------------------------------------
 
 
@@ -1949,23 +1919,13 @@ if __name__ == "__main__":
             ACMCOM = Scene(Name=OrbitID, verbose=verbose)
             ACMCOM.ReadEarthCAREh5(ProductFile, verbose=verbose, ACM3D=ACM3D)
             ACMCOM.SetExtent()
-                            # setE=False #True
-                            # if setE:
-                            #     ACMCOM.extent_left = -56.4
-                            #     ACMCOM.extent_right = -56.1
-                            #     ACMCOM.extent_bottom = 60.95
-                            #     ACMCOM.extent_top = 61.35
-
-            
-                            # indlat = find_nearest_id(ACMCOM.latitude,latitude_wanted)
-                            # latitude_have_ACMCOM = ACMCOM.latitude.flatten()[indlat]
+                           
             # Extract Baseline ---------------------------   
             parts = ProductFile.split("ECA_EX", 1)
             out = parts[1][:2] if len(parts) > 1 else None
             if   out == 'BA': BA_baseline += ' ' + Product
             elif out == 'AC': AC_baseline += ' ' + Product
             elif out == 'BB': BB_baseline += ' ' + Product
-            # print(out)
             #---------------------------------------------
 
             # Find overpass time and closes across- and along-track indices for overpass
@@ -2120,7 +2080,7 @@ if __name__ == "__main__":
 
 
             if 'ExtractData' in ToDo:
-                libRad.ExtractData(ia=ial, shape=AssDomainSize, idx_scene=start_idx, BMAFLX=BMAFLX, pyranometer_data=pyranometer_data, want_info=True)
+                libRad.ExtractData(ia=ial, shape=AssDomainSize, idx_scene=start_idx, pyranometer_data=pyranometer_data, want_info=True)
                 start_idx += 1
 
 

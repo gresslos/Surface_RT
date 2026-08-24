@@ -235,7 +235,7 @@ class UVspec:
 
         #FIXME
         p   = call(cmd,shell=True,stdin=PIPE,stdout=PIPE)
-        return
+        return p # -> 0: successful        -> non-zero -> uvspec failed
 
     def removefiles(self, file):
         """

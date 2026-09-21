@@ -73,9 +73,9 @@ def pdeg2km(p):
     return (p0,p1)
 
 
-def Check3DBufferSize(ACM3D, ia, iacr):
+def Check3DBufferSize(ACM3D, ia, iacr, which_buffer):
 
-    Nx, Ny, iacrosses, ialongs = Calc3DBufferSize(ACM3D, ia, iacr)
+    Nx, Ny, iacrosses, ialongs = Calc3DBufferSize(ACM3D, ia, iacr, BMAFLX, which_buffer)
     if Nx>0 and Ny>0:
         BufferOK=True
     else:
@@ -84,13 +84,90 @@ def Check3DBufferSize(ACM3D, ia, iacr):
     return BufferOK
 
 
-def Calc3DBufferSize(ACM3D, ia, iacr):
+def Calc3DBufferSize(ACM3D, ia, iacr, BMAFLX, which_buffer):
+    WANT_PRINTS = False
     # BG: Decide to use my buffer, not dynamic buffer!
     if which_buffer == 0:   along_dim, across_dim =  0,  0 # ( 1, 1) comp-domain  MCIPA 
     elif which_buffer == 1: along_dim, across_dim =  2,  2 # ( 5, 5) comp-domain  Test Buffer
     elif which_buffer == 2: along_dim, across_dim = 10, 10 # (21,21) comp-domain  ~BBR +  5 pixels-buffer
     elif which_buffer == 3: along_dim, across_dim = 20, 20 # (41,41) comp-domain  ~BBR + 35 pixels-buffer
+        # NEW:
+    elif which_buffer == 4:  # Sun-depenent buffer
+        LOWER_THRESHOLD_along_dim  = 10
+        LOWER_THRESHOLD_across_dim = 10
+        UPPER_THRESHOLD_across_dim = 30
 
+        cloud_hight_estimate = 12 # Upper bound clouds (in Northern Latitudes)
+
+        p0 = (ACM3D.longitude[iacr,  ia-5],  ACM3D.latitude[iacr,  ia-5])
+        p1 = (ACM3D.longitude[iacr,  ia+5],  ACM3D.latitude[iacr,  ia+5])
+        px = (p0[0], p1[1])
+
+        p0_km = pdeg2km(p0)
+        p1_km = pdeg2km(p1)
+        px_km = pdeg2km(px)
+
+        # Calculate distances between points in kilometers
+        # Using formula: distance = sqrt((x2 - x1)^2 + (y2 - y1)^2)
+        p0p1 = np.sqrt(np.power(p1_km[0] - p0_km[0], 2) + np.power(p1_km[1] - p0_km[1], 2))
+        p0px = np.sqrt(np.power(px_km[0] - p0_km[0], 2) + np.power(px_km[1] - p0_km[1], 2))
+
+        # Calculate angle between satellite track and meridian line
+        track_angle = np.rad2deg(np.arccos(p0px / p0p1))
+            # This will always result in positive angles (km > 0)
+
+
+        # Check if the satellite track is descending (going south) 
+        # -> need to swith track_angle accordingly
+        if p1_km[1] < p0_km[1]:       # Track goes south(west)
+            track_angle = 180 + track_angle
+        else:                         # Track goes north(west)
+            track_angle = 360 - track_angle
+        if WANT_PRINTS: print(f"Track angle = {track_angle:.0f}°")
+        
+
+
+
+                    ########### OLD ######################################
+                        # # Satelite trajectory ANGLE
+                        # dlon = p1[0] - p0[0]
+                        # dlat = p1[1] - p0[1]
+                        # angle = np.degrees(np.arctan2(dlon, dlat)) % 360
+                        # if WANT_PRINTS: print(f"Satellite Trajectory Angle = {angle:.0f}°")
+
+        latitude_wanted = ACMCOM.latitude_active[ia]
+        longitude_wanted = ACMCOM.longitude_active[ia]
+        dist = np.sqrt((BMAFLX.latitude - latitude_wanted)**2 + (BMAFLX.longitude - longitude_wanted)**2)
+        indlatBMAFLX = np.unravel_index(np.argmin(dist, axis=None), dist.shape)
+        sza  = BMAFLX.solar_zenith_angle[indlatBMAFLX,1].squeeze()  # Nadir view is in element one
+        phi0 = BMAFLX.solar_azimuth_angle[indlatBMAFLX,1].squeeze()  # Nadir view is in element one
+
+                    ################# OLD #################################
+                        # phi_diff = (phi0 - angle) % 360 # % 360 means the difference is wrapped within [0, 360) degrees
+                        # if WANT_PRINTS: print(f"sza = {sza:.0f} phi0 = {phi0:.0f}   -> phi_diff = {phi_diff:.0f}")
+
+
+        # Angle between solar azimuth and satellite track
+        phi_diff = (phi0 - track_angle) % 360
+
+        factor_across = abs(np.sin(np.deg2rad(phi_diff)))
+        factor_along  = abs(np.cos(np.deg2rad(phi_diff)))
+        if WANT_PRINTS: print(f"factor_across = {factor_across:.2f}    factor_along = {factor_along:.2f}")
+        
+        factor_projected_length = abs(cloud_hight_estimate * np.tan(np.deg2rad(sza)))
+        if WANT_PRINTS: print(f"factor_projected_length = {factor_projected_length:.2f}")
+
+        along_dim  = int(factor_along * factor_projected_length)
+        across_dim = int(factor_across * factor_projected_length)
+
+        along_dim  = max(along_dim, LOWER_THRESHOLD_along_dim)
+        across_dim = max(across_dim, LOWER_THRESHOLD_across_dim)
+
+        # Not get across-track dim outside ECA frame (which end at pixel 0 and 190)
+        max_across_index = 190 
+        across_dim = min(across_dim, max_across_index - iacr, UPPER_THRESHOLD_across_dim)
+        if WANT_PRINTS: print(f"along_dim = {along_dim} across_dim = {across_dim}")
+        if WANT_PRINTS: print("\n\n")
     
 
     ialongs = np.arange(ia-along_dim, ia+along_dim+1)
@@ -353,7 +430,9 @@ def SetRTM(UVS, ia, iacr, ACM3D=None, AMACD=None, ACMCOM=None, ACMRT=None, BMAFL
                 
     if rte_solver=='montecarlo':
         UVS.inp['mc_std']=''
-        UVS.mc_basename=mc_basename_path+'mc_{:00004d}'.format(ia)+'_'+source
+        # UVS.mc_basename=mc_basename_path+'mc_{:00004d}'.format(ia)+'_'+source # Old->made race-conditions errors 
+        UVS.mc_basename=mc_basename_path+'mc_'+f"{OrbitID}_{ia:04d}_"+str(my_rank)+'_'+source
+
         UVS.inp['mc_basename']=UVS.mc_basename
         # ESO: set randomseed explicitly (for error checking and debugging)
         UVS.inp['mc_randomseed'] = (ia+1)*72341//11
@@ -361,57 +440,171 @@ def SetRTM(UVS, ia, iacr, ACM3D=None, AMACD=None, ACMCOM=None, ACMRT=None, BMAFL
 
         if RTdimension == '3D':  
             
-            Nx, Ny, iacrosses, ialongs = Calc3DBufferSize(ACM3D, ia, iacr)  #calculates along and cross track buffer size 
+            Nx, Ny, iacrosses, ialongs = Calc3DBufferSize(ACM3D, ia, iacr, BMAFLX, which_buffer)  #calculates along and cross track buffer size 
             # Set SAMPLE-GRID
             UVS.inp['mc_sample_grid']=f'{Nx} {Ny}' # 3D computation domain
             UVS.inp['mc_reference_to_nn']='' # The sampled pixels correspond to the surface pixels.
           
             if (Nx > 1) & (Ny > 1):  # BG: if not MCIPA
-                # Check if latitude increase or decrease
-                is_increasing = np.all(np.diff(ACM3D.latitude[:, ia]) > 0)
-                ######### BG NEW 09.02.26 #########
-                is_increasing = np.all(np.diff(ACM3D.latitude[iacr, ialongs]) > 0)
-                ####################################
-                # In wc_file x propagates east and y propagates north, hence if latitude
-                # is increasing (ascending node) keep ialongs, but reverse iacrosses.
-                # If latitude is decreasing (descending node), reverse ialongs and
-                # keep iacrosses.
-
-                if is_increasing:
-                    # print('Increasing latitude')
-                    # print(f'First latitude = {ACM3D.latitude[iacr, ialongs[0]]}    Last latitude = {ACM3D.latitude[iacr, ialongs[-1]]}')
-                    iacrosses=iacrosses[::-1]  # reverse: ialong=[1,2,3,4] --> ialong=[4,3,2,1]
-                    ialongs=ialongs
-                else:
-                    # print('Decreasing latitude')
-                    # print(f'First latitude = {ACM3D.latitude[iacr, ialongs[0]]}    Last latitude = {ACM3D.latitude[iacr, ialongs[-1]]}')
-                    iacrosses=iacrosses
-                    ialongs=ialongs[::-1]
-                    
+                                    # # Check if latitude increase or decrease
+                                    # is_increasing = np.all(np.diff(ACM3D.latitude[:, ia]) > 0)
+                                    # ######### BG NEW 09.02.26 #########
+                                    # is_increasing = np.all(np.diff(ACM3D.latitude[iacr, ialongs]) > 0)
+                                    # ####################################
+                                    # # In wc_file x propagates east and y propagates north, hence if latitude
+                                    # # is increasing (ascending node) keep ialongs, but reverse iacrosses.
+                                    # # If latitude is decreasing (descending node), reverse ialongs and
+                                    # # keep iacrosses.
+                
 
 
-                # 3D wc and ic files are aligned parallel to the meridians, the EartCARE swath is not.
-                # To correct for this perform a solar azimuth angle shift
+                                    # # TEST_ARVE_CODE       = True
+                                    # # TEST_MY_NEW_CODE_v01 = False
+                                    # # TEST_MY_NEW_CODE_v02 = False
+
+
+
+                                    
+                                    # if TEST_ARVE_CODE_v1:
+                                    #     if is_increasing:
+                                    #         # print('Increasing latitude')
+                                    #         # print(f'First latitude = {ACM3D.latitude[iacr, ialongs[0]]}    Last latitude = {ACM3D.latitude[iacr, ialongs[-1]]}')
+                                    #         iacrosses=iacrosses[::-1]  # reverse: ialong=[1,2,3,4] --> ialong=[4,3,2,1]
+                                    #         ialongs=ialongs
+                                    #     else:
+                                    #         # print('Decreasing latitude')
+                                    #         # print(f'First latitude = {ACM3D.latitude[iacr, ialongs[0]]}    Last latitude = {ACM3D.latitude[iacr, ialongs[-1]]}')
+                                    #         iacrosses=iacrosses
+                                    #         ialongs=ialongs[::-1]
+
+
+
+                                    #     # 3D wc and ic files are aligned parallel to the meridians, the EartCARE swath is not.
+                                    #     # To correct for this perform a solar azimuth angle shift
+                                    #     p0 = (ACM3D.longitude[iacrosses[0],  ialongs[0]],   ACM3D.latitude[iacrosses[0],  ialongs[0]])
+                                    #     p1 = (ACM3D.longitude[iacrosses[0],  ialongs[-1]],  ACM3D.latitude[iacrosses[0],  ialongs[-1]])
+                                    #     px = (p0[0], p1[1])
+                                                        
+
+                                    #     p0 = pdeg2km(p0)
+                                    #     p1 = pdeg2km(p1)
+                                    #     px = pdeg2km(px)
+                                            
+                                    #     p0p1 = np.sqrt(np.power(p1[0]-p0[0],2) + np.power(p1[1]-p0[1],2))
+                                    #     p0px = np.sqrt(np.power(px[0]-p0[0],2) + np.power(px[1]-p0[1],2))
+                                                        
+                                            
+                                    #     # Caculate angle betweeen satellite track and meridian line (north/south)
+                                    #     phi0_shift = np.rad2deg(np.arccos(p0px/p0p1)) 
+                                    #     #print('phi0, phi0_shift', phi0, phi0_shift)
+  
+                                    #     if phi0 > 0 and phi0< 180:
+                                    #         phi0 = phi0-phi0_shift
+                                    #     else:
+                                    #         phi0 = phi0+phi0_shift
+                                                
+                                    #     #print('phi0', phi0, phi0_shift)
+                                    
+
+
+                                    
+                                    # if TEST_MY_NEW_CODE_v2:
+                                    #     # 1. Calculate solar azimuth track shift BEFORE reversing array indices
+                                    #     p0 = (ACM3D.longitude[iacrosses[0],  ialongs[0]],   ACM3D.latitude[iacrosses[0],  ialongs[0]])
+                                    #     p1 = (ACM3D.longitude[iacrosses[0],  ialongs[-1]],  ACM3D.latitude[iacrosses[0],  ialongs[-1]])
+                                    #     px = (p0[0], p1[1])
+
+                                    #     p0_km = pdeg2km(p0)
+                                    #     p1_km = pdeg2km(p1)
+                                    #     px_km = pdeg2km(px)
+
+                                    #     p0p1 = np.sqrt(np.power(p1_km[0] - p0_km[0], 2) + np.power(p1_km[1] - p0_km[1], 2))
+                                    #     p0px = np.sqrt(np.power(px_km[0] - p0_km[0], 2) + np.power(px_km[1] - p0_km[1], 2))
+
+                                    #     # Calculate angle between satellite track and meridian line
+                                    #     phi0_shift = np.rad2deg(np.arccos(p0px / p0p1))
+                                    #     print(f"phi0_shift: {phi0_shift}")
+
+                                    #     # 2. Reverse indices AND update phi0 according to ascending/descending node
+                                    #     if is_increasing:
+                                    #         iacrosses = iacrosses[::-1]          # Reverse x-axis
+                                    #         phi0 = (360 - phi0) % 360            # Mirror x-component of solar azimuth
+                                    #         phi0 = (phi0 - phi0_shift) if (0 < phi0 < 180) else (phi0 + phi0_shift)
+                                    #     else:
+                                    #         ialongs = ialongs[::-1]              # Reverse y-axis
+                                    #         phi0 = (180 - phi0) % 360            # Mirror y-component of solar azimuth
+                                    #         phi0 = (phi0 + phi0_shift) if (0 < phi0 < 180) else (phi0 - phi0_shift)
+
+                                    # if TEST_MY_NEW_CODE_v3:
+
+
+                # Code below is relativly new, created 16.09.26 (found error in Arve's old code)
+                # Do not reverse along- or across-track
+                # Just modify Phi0 to accound for satellite track direction
+                ###########################################################################################################
+                WANT_PRINTS = False
+                # 1. Calculate solar azimuth track shift BEFORE reversing array indices
                 p0 = (ACM3D.longitude[iacrosses[0],  ialongs[0]],   ACM3D.latitude[iacrosses[0],  ialongs[0]])
                 p1 = (ACM3D.longitude[iacrosses[0],  ialongs[-1]],  ACM3D.latitude[iacrosses[0],  ialongs[-1]])
                 px = (p0[0], p1[1])
 
-                p0 = pdeg2km(p0)
-                p1 = pdeg2km(p1)
-                px = pdeg2km(px)
+                p0_km = pdeg2km(p0)
+                p1_km = pdeg2km(p1)
+                px_km = pdeg2km(px)
+
+                # Calculate distances between points in kilometers
+                # Using formula: distance = sqrt((x2 - x1)^2 + (y2 - y1)^2)
+                p0p1 = np.sqrt(np.power(p1_km[0] - p0_km[0], 2) + np.power(p1_km[1] - p0_km[1], 2))
+                p0px = np.sqrt(np.power(px_km[0] - p0_km[0], 2) + np.power(px_km[1] - p0_km[1], 2))
+
+                                    # p0: (longitude, latitude) of the first along-track point
+                                    #                 # p1: (longitude, latitude) of the last along-track point
+                                    #                 # px: (longitude of p0, latitude of p1) 
+                                    #                 # 
+                                    #                 # p0p1: hypotenuse (distance between p0 and p1)
+                                    #                 # p0px: vertical leg (distance between p0 and px)
+                                    #                 ##############################################################
+                                    #                 # px ─────────── p1
+                                    #                 # │            ╱
+                                    #                 # │           ╱
+                                    #                 # │          ╱
+                                    #                 # │         ╱
+                                    #                 # │        ╱
+                                    #                 # │       ╱
+                                    #                 # │      ╱
+                                    #                 # │     ╱
+                                    #                 # |    /
+                                    #                 # |   /
+                                    #                 # |  /
+                                    #                 # |θ/
+                                    #                 # |/
+                                    #                 # p0     
+                                    #                 #  
+                                    #                 # ->  θ = arccos(p0px / p0p1) 
+                                    #                 #     θ = angle between the nadir-track / hypotenus (p0p1) and the meridian line (p0px)
+                                    #                 # 
+                                    #                 ##############################################################
+
+
+                # Calculate angle between satellite track and meridian line
+                phi0_shift = np.rad2deg(np.arccos(p0px / p0p1))
+
+
+                if WANT_PRINTS: print(f"    phi0_shift before checking if decending frame: {phi0_shift:.0f}")
+                # Check if the satellite track is descending (going south) 
+                # -> need to swith phi0_shift accordingly
+                if p1_km[1] < p0_km[1]:       # Track goes south
+                    phi0_shift = 180 - phi0_shift
+                if WANT_PRINTS: print(f"    phi0_shift after checking if decending frame: {phi0_shift:.0f}")
+
+                if WANT_PRINTS: print(f"    phi0 before updating with phi0_shift: {phi0:.0f}   (0deg=South)")
+                # update phi0 according to ascending/descending node
+                phi0 += phi0_shift
+                if WANT_PRINTS: print(f"    phi0 after updating with phi0_shift: {phi0:.0f}")
                     
-                p0p1 = np.sqrt(np.power(p1[0]-p0[0],2) + np.power(p1[1]-p0[1],2))
-                p0px = np.sqrt(np.power(px[0]-p0[0],2) + np.power(px[1]-p0[1],2))
-                    
-                phi0_shift = np.rad2deg(np.arccos(p0px/p0p1)) 
-                #print('phi0, phi0_shift', phi0, phi0_shift)
-                
-                if phi0 > 0 and phi0< 180:
-                    phi0 = phi0-phi0_shift
-                else:
-                    phi0 = phi0+phi0_shift
                         
-                #print('phi0', phi0, phi0_shift)
+                        
+
         else:
             UVS.inp['mc_photons'] = '1000'
 
@@ -442,12 +635,22 @@ def SetRTM(UVS, ia, iacr, ACM3D=None, AMACD=None, ACMCOM=None, ACMRT=None, BMAFL
         UVS.inp['mc_minphotons']=mc_photons # Note: MC_MINPHOTONS = 1e3 in uvspec.h so need to modify!
     else:
         UVS.inp['wavelength']='295 2800'     # Changed from '250 4000' 20.01.2026   
-        mc_photons = int(1e7) # OLD: but maybe use if 1e7 too long! int(1e6)
-        # mc_photons = int(1e4)    # Only for testing!
+        
+        mc_photons = int(1e7)  
+        # NOTE TO ME:
+        # mc_photons = int(1e7) is sufficient bacause 1e6 plots make sense!  
+
+
+
+        """------------ TESTING IF CODE WORKS ----------------- """
+        mc_photons = int(1e6)  # For testing purposes, reduce the number of photons to speed up the simulation
+
+
+        if TESTING_OLD_FRAMES: 
+            mc_photons = int(1e6)
+    
         UVS.inp['mc_photons']=mc_photons 
-        # print('mc_photons=', mc_photons)
-
-
+      
     # ---- Calculate Date -> day_of_year ---- (changes made 14.11.2025)
     ProductFile = os.path.basename(ACMCOM.fn)
     date_num = '20' + ProductFile.split('20', 1)[1].split('T', 1)[0] # Extract Date from ProductFile
@@ -627,6 +830,8 @@ def SetRTM(UVS, ia, iacr, ACM3D=None, AMACD=None, ACMCOM=None, ACMRT=None, BMAFL
                     # ####################################################
 
 
+                    
+
                     irec = ACM3D.index_construction[iac, ial]
 
                     iz = 1
@@ -636,7 +841,7 @@ def SetRTM(UVS, ia, iacr, ACM3D=None, AMACD=None, ACMCOM=None, ACMRT=None, BMAFL
                     lwc = ACMCOM.liquid_water_content[1:,irec]; lwc = lwc[::-1]   #ignore the top levels (0=67km,1=62,...3=52km)
                     reff = ACMCOM.liquid_effective_radius[1:,irec]; reff = reff[::-1]
                     
-                    ############################### TESTING ################################
+                    ############################### TESTING_OLD_FRAMES ################################
                     # if np.any((hl > -1e-4) & (pl < 1e10) & (lwc > 0.0)):
                     #     print(f"----------------------- Cloudy (liq) pixel {iac}, {ial} ----------- irec = {irec}---------------------\n")
                     # else: 
@@ -644,6 +849,44 @@ def SetRTM(UVS, ia, iacr, ACM3D=None, AMACD=None, ACMCOM=None, ACMRT=None, BMAFL
                     #########################################################################
 
 
+
+                    if TESTING_OLD_FRAMES:
+                        if TEST_ARVE_CODE_v1 or TEST_MY_NEW_CODE_v2 or TEST_MY_NEW_CODE_v3:
+                            # Make a 2x2 cloud in the center of the domain
+                            cloud_start_X = Nx//2 + Nx//8
+                            cloud_start_Y = Ny//2 + Ny//8
+                        
+                            inside_cloud_region = (
+                                    cloud_start_X <= ix < cloud_start_X + 2
+                                and cloud_start_Y <= iy < cloud_start_Y + 2
+                            )
+
+                            # if inside_cloud_region:
+                            #     iy=iy+1
+                            #     continue
+
+                            wc_value = 1e-2
+                            lwc = np.full(lwc.shape, wc_value, dtype=float) # making constant liquid water content
+
+                            # Find indecies for constructed cloud
+                            h_min = 2000
+                            h_max = 3000 + 4000
+
+                            if ix == cloud_start_X and iy == cloud_start_Y:
+                                valid = (hl > -1e-4) & (pl < 1e10)
+                                h_valid = np.asarray(hl)[valid]
+
+                                iz_h_min = np.argmin(np.abs(h_valid - h_min)) + 1
+                                iz_h_max = np.argmin(np.abs(h_valid - h_max)) + 1
+
+                                iz_min = min(iz_h_min, iz_h_max)
+                                iz_max = max(iz_h_min, iz_h_max)
+
+                                print("Cloud vertical indices:", iz_min, iz_max)
+                                print("Actual heights:", h_valid[iz_min-1], h_valid[iz_max-1])
+
+                        
+                    
 
                     # BG: made changes
                     # - iz += 1 for each realistic h > 0 measurement by EarthCARE
@@ -660,6 +903,15 @@ def SetRTM(UVS, ia, iacr, ACM3D=None, AMACD=None, ACMCOM=None, ACMRT=None, BMAFL
                                 ):
                                     # Edge effect test: set wc = 0 in edge buffer zone
                                     f.write('{:d} {:d} {:d} {:f} {:f}\n'.format(ix, iy, iz, 0.0, wcreff))
+
+
+                                elif TESTING_OLD_FRAMES:
+                                    if TEST_ARVE_CODE_v1 or TEST_MY_NEW_CODE_v2 or TEST_MY_NEW_CODE_v3:
+                                        if inside_cloud_region and iz_min <= iz < iz_max: # h_min < h < h_max:
+                                            # set wc
+                                            f.write('{:d} {:d} {:d} {:f} {:f}\n'.format(ix, iy, iz, wc, 10.0))
+                                            print(f'Writing wc={wc} at ix={ix}, iy={iy}, iz={iz}')
+                    
                                 else:
                                     f.write('{:d} {:d} {:d} {:f} {:f}\n'.format(ix, iy, iz, wc, wcreff))
                                     # BG: Explenation:
@@ -1157,6 +1409,10 @@ if __name__ == "__main__":
                 ps -p <PID> -o etime
             
             Simple: mpirun -n 8 python Make_RTM.py
+
+
+    How to see availeble resources:
+            sinfo -N -p main -t idle,mix -o "%N %t %C"
     """
 
 
@@ -1174,8 +1430,8 @@ if __name__ == "__main__":
     want_ps  = False        # Psudospherical solver
         
                             
-    which_buffer = 2
-    # 0: MCIPA   1:Test   2: 21x21   3: 41x41 
+    which_buffer = 4
+    # 0: MCIPA   1:Test   2: 21x21   3: 41x41   4: sun-dependent buffer
     ################################################################################################
 
    
@@ -1221,17 +1477,20 @@ if __name__ == "__main__":
         ("Brusdalen",   62.485,	6.480),  
         ("Jan-Mayen",   70.939,	-8.669), 
         ("Flesland",    60.289,	5.227),  
-        ("Iskoras",     69.300,	25.346), 
+        ("Iskoras",     69.300,	25.346), # 13
         ("Rena",        61.376,	11.499), 
         ("Korgåsen",    69.936,	28.377), 
         ("Bjørnøya",    74.504,	18.998), 
-        ("Filefjell",   61.178,	8.113),  
+        ("Filefjell",   61.178,	8.113),  # 17
         ("Juvvasshøe",  61.678,	8.369),  
     ]
 
-    idx_range = np.arange(0,len(sites))
-    # idx_range = np.arange(1,len(sites))
+    
     # idx_range = np.arange(0,1)
+    # idx_range = np.arange(17,18)
+    # idx_range = np.arange(13,14)
+    # idx_range = np.arange(16,17)
+    idx_range = np.arange(0,len(sites))
     sites = [sites[i] for i in idx_range]
 
 
@@ -1286,15 +1545,10 @@ if __name__ == "__main__":
         else: 
             rte_solver = 'disort'  # 'twostr'        
         RTdimension ='1D' 
+    print(f"{RTdimension} RTM - {rte_solver}")
 
+    SZA_THRESHOLD = 80  # Define the threshold for the solar zenith angle
 
-    Nx, Ny = 1, 1 # Default Horizontal Computaion-Domain Size 
-    if WANT_3D:                                                                                             # min / pixel   |     solar-std     |     thermal-std  
-        if   which_buffer == 0 :                  buffer_str = 'MCIPA'
-        elif which_buffer == 1 : Nx, Ny =  5,  5; buffer_str = 'TEST   Buffer (5 x 5)'                      #   1.5         |                   |
-        elif which_buffer == 2 : Nx, Ny = 21, 21; buffer_str = '~BBR +  5 pixels-buffer  (21 x 21)'         #    4          |       ~5-8        |       ~0.5-2
-        elif which_buffer == 3 : Nx, Ny = 41, 41; buffer_str = '~BBR + 35 pixels-buffer  (41 x 41)'         #    5          |       ~17         |       ~1.6
-    else:                             buffer_str = ''
 
     # ---------------------------------- Paths -----------------------------------------------
     pathL2TestProducts_base = DATA_FILES 
@@ -1325,15 +1579,87 @@ if __name__ == "__main__":
         #     print("\n\n\n=================================================================================================================")
         #     print("OrbitID    = ", OrbitID)
         #     print("Specs      = ", ('SUR' if WANT_SUR else 'TOA') + ' - ' + rte_solver + ' - ' + RTdimension + ' - ' + additional_spesifications + ' - ' + buffer_str)
-            
-            
+
+
+
+
+        # """------------ TESTING SLURM ------------------------------ """
+        # # ("Iskoras", "00912C")
+        # # ("Iskoras", "05673C")
+        # if OrbitID not in ('00912C', '05673C'):
+        #     continue
+        
+
+        TESTING_OLD_FRAMES  = False
+        TESTING_NEW_BUFFER  = False
+        TEST_ARVE_CODE_v1   = False
+        TEST_MY_NEW_CODE_v2 = False
+        TEST_MY_NEW_CODE_v3 = False
+        ################################################################################################################
+        if TESTING_NEW_BUFFER:
+            RTOutNetcdfPath = './RESULTS_TEST/'  # Folder name for netcdf result files
+        
+            # # Filefjell   00928D
+            # if OrbitID != '00928D':
+            #     continue
+
+            # ("Iskoras", "00912C")
+            if OrbitID != '00912C':
+                continue
+
+            # # ("Bjørnøya", "06685C")
+            # if OrbitID != '06685C':
+            #     continue
+
+            # # ("Iskoras", "05673C")
+            # if OrbitID != '05673C':
+            #     continue
+
+
+        if TESTING_OLD_FRAMES:
+            # Filefjell   00928D
+            if OrbitID != '00928D':
+                continue
+
+            # OrbitID = 'TESTING_OLD_FRAMES_NEW_PHI_CODE'
+
+            if TEST_ARVE_CODE_v1:
+                OrbitID = 'TESTING_v1'
+            if TEST_MY_NEW_CODE_v2:
+                OrbitID = 'TESTING_v2'
+            if TEST_MY_NEW_CODE_v3:
+                OrbitID = 'TESTING_v3'
+                OrbitID = 'TESTING_v3_Acending_Frame'
+                OrbitID = 'TESTING_v3_Cyclic'
+                OrbitID = 'TESTING_v3_Cyclic_41x41'
+                OrbitID = 'TESTING_v3_Cyclic_Sun_Buffer'
+
+            if TEST_ARVE_CODE_v1 or TEST_MY_NEW_CODE_v2 or TEST_MY_NEW_CODE_v3:
+                surface = False
+                wccloud = True      
+                iccloud = False       
+                aerosol = False  
+
+            Station = "Filefjell"
+            pathL2TestProducts = '/xnilu_wrk2/projects/NEVAR/data/EarthCARE_Real/' # EarthCARE data
+            RTOutNetcdfPath = './RESULTS_TEST/'  # Folder name for netcdf result files
+
+            # Testing deceding Frame
+            SceneName = 'Orbit_07883D'
+
+            # Testing acending Frame
+            # SceneName = 'Orbit_06600C'
+        ################################################################################################################
+
 
 
         Product ='ALL_3D_'
         ProductPath = '*'+Product+'*'+OrbitID+'*'
         ProductFile = os.path.join(pathL2TestProducts, ProductPath, '*'+Product+'*.h5')     
+        if TESTING_OLD_FRAMES:
+            ProductPath = '*'+Product+'*'
+            ProductFile = os.path.join(pathL2TestProducts, SceneName, 'output', ProductPath, '*'+Product+'*.h5') 
         ProductFile = sorted(glob.glob(ProductFile))[0]
-
         if verbose: print('ProductFile', ProductFile)
         ACM3D = ReadEC.Scene(Name=OrbitID, verbose=verbose)  
         ACM3D.ReadEarthCAREh5(ProductFile, verbose=verbose)                          
@@ -1341,6 +1667,9 @@ if __name__ == "__main__":
         Product ='ACM_COM'
         ProductPath = '*'+Product+'*'+OrbitID+'*'
         ProductFile = os.path.join(pathL2TestProducts, ProductPath, '*'+Product+'*.h5')
+        if TESTING_OLD_FRAMES:
+            ProductPath = '*'+Product+'*'
+            ProductFile = os.path.join(pathL2TestProducts, SceneName, 'output', ProductPath, '*'+Product+'*.h5') 
         ProductFile = sorted(glob.glob(ProductFile))[0]
         if verbose: print('ProductFile', ProductFile)
         ACMCOM = ReadEC.Scene(Name=OrbitID, verbose=verbose)        
@@ -1397,6 +1726,9 @@ if __name__ == "__main__":
         Product ='BMA_FLX'      #BBR fluxes
         ProductPath = '*'+Product+'*'+OrbitID+'*'
         ProductFile = os.path.join(pathL2TestProducts, ProductPath, '*'+Product+'*.h5')
+        if TESTING_OLD_FRAMES:
+            ProductPath = '*'+Product+'*'
+            ProductFile = os.path.join(pathL2TestProducts, SceneName, 'output', ProductPath, '*'+Product+'*.h5') 
         try: ProductFile = sorted(glob.glob(ProductFile))[0]
         except IndexError: print(f"\n     Skipping {OrbitID}. Do not find product {Product}"); continue
         if verbose: print('ProductFile', ProductFile)
@@ -1404,7 +1736,31 @@ if __name__ == "__main__":
         # BMAFLX.ReadEarthCAREh5(ProductFile, Resolution='StandardResolution', verbose=verbose) 
         BMAFLX.ReadEarthCAREh5(ProductFile, Resolution='SmallResolution', verbose=verbose) 
         # SmallResolution = 5x10 km (along x across track)
+
         
+
+
+        
+
+        if TESTING_OLD_FRAMES:
+            iacr = 150
+            ial = 1600
+            ialongs = [ial]
+            
+
+
+
+
+        Nx, Ny = 1, 1 # Default Horizontal Computaion-Domain Size 
+        if WANT_3D:                                                                                             # min / pixel   |     solar-std     |     thermal-std  
+            if   which_buffer == 0 :                  buffer_str = 'MCIPA'
+            elif which_buffer == 1 : Nx, Ny =  5,  5; buffer_str = 'TEST   Buffer (5 x 5)'                      #   1.5         |                   |
+            elif which_buffer == 2 : Nx, Ny = 21, 21; buffer_str = '~BBR +  5 pixels-buffer  (21 x 21)'         #    4          |       ~5-8        |       ~0.5-2
+            elif which_buffer == 3 : Nx, Ny = 41, 41; buffer_str = '~BBR + 35 pixels-buffer  (41 x 41)'         #    5          |       ~17         |       ~1.6
+            elif which_buffer == 4 : Nx, Ny, _, _ = Calc3DBufferSize(ACM3D, ial, iacr, BMAFLX, which_buffer)                   # Sun-depenent buffer
+        else:                             buffer_str = ''
+        
+
                                                                                                 
 
             
@@ -1429,9 +1785,6 @@ if __name__ == "__main__":
 
 
 
-
-
-        
 
         
 
@@ -1461,7 +1814,6 @@ if __name__ == "__main__":
         for ia in ialongs:
             latitude_wanted = ACMCOM.latitude_active[ia]
             longitude_wanted = ACMCOM.longitude_active[ia]
-                    # indlatBMAFLX = np.unravel_index(np.argmin(np.abs(BMAFLX.latitude - latitude_wanted), axis=None), BMAFLX.latitude.shape)
             dist = np.sqrt((BMAFLX.latitude - latitude_wanted)**2 + (BMAFLX.longitude - longitude_wanted)**2)
             indlatBMAFLX = np.unravel_index(np.argmin(dist, axis=None), dist.shape)
             BMAFLX.indlatBMAFLX=indlatBMAFLX
@@ -1477,7 +1829,7 @@ if __name__ == "__main__":
             # ----------------------
             
 
-            BufferOK = Check3DBufferSize(ACM3D, ia, iacr)
+            BufferOK = Check3DBufferSize(ACM3D, ia, iacr, which_buffer)
             if not BufferOK:
                 source='Buffer'
                 # print(f'     [WORKER {my_rank}] WARNING: Not enough 3D buffer for ia = {ia}, source = {source}. Skipping.')
@@ -1486,7 +1838,8 @@ if __name__ == "__main__":
                     try: 
                         RTM=True
                         if source=='solar':
-                            if sza >= 90:
+                            # if sza >= 90:
+                            if sza >= SZA_THRESHOLD:
                                 RTM=False
                                 # print(f"\n      Terminate run. SZA = {sza.squeeze():.2f} > 90\n")
                             mol_abs_param = 'kato2' #'reptran course' #
@@ -1723,12 +2076,13 @@ if __name__ == "__main__":
             else: 
                 libRad.WriteNetcdf(RTOutNetcdfPath + 'libRad_' + libRad_version + '_' + src + '_' + OrbitID + '_' + Station + additional_spesifications + '.nc', verbose=False)
 
+        # print("Finish writing NetCDF file: " + RTOutNetcdfPath + 'libRad_' + libRad_version + '_' + src + '_' + OrbitID + '_' + Station + additional_spesifications + '.nc')
 
     
 
 
-    # tt = datetime.now(timezone.utc) - start_time
-    # print(f"            Worker {my_rank:2} finished run. It took {tt.total_seconds()/3600:.2f} hours \n\n\n\n\n\n\n")
+    tt = datetime.now(timezone.utc) - start_time
+    print(f"            Worker {my_rank:2} finished run. It took {tt.total_seconds()/3600:.2f} hours \n\n\n\n\n\n\n")
 
     MPI.Finalize()
     

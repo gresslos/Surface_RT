@@ -734,8 +734,13 @@ def AssDomain(data, shape=(11,11)):
     # print('\n\n---------------------- AssDomain -------------------')
     # print('     AssDomainSize', Nx, Ny)
     # print('     Initial data.shape:          ', data.shape)
-    start_x = int(data.shape[-1]/2 - Nx/2); start_y = int(data.shape[-2]/2 - Ny/2)
-    end_x   = int(data.shape[-1]/2 + Nx/2); end_y   = int(data.shape[-2]/2 + Ny/2)
+            # start_x = int(data.shape[-1]/2 - Nx/2); start_y = int(data.shape[-2]/2 - Ny/2)
+            # end_x   = int(data.shape[-1]/2 + Nx/2); end_y   = int(data.shape[-2]/2 + Ny/2)
+    
+    start_x = int(data.shape[0]/2 - Nx/2); start_y = int(data.shape[1]/2 - Ny/2)
+    end_x   = int(data.shape[0]/2 + Nx/2); end_y   = int(data.shape[1]/2 + Ny/2)
+
+    
     data = data[start_x:end_x, start_y:end_y]
     # print('     start, end:', start_x, end_x)
     # print('     Removed Buffer -> data.shape:', data.shape)
@@ -766,14 +771,13 @@ class Scene:
             data = np.convolve(data, np.ones(w_size), 'same') / w_size
 
 
-        # print(data, libRad.fn)
-        # return
-
-
         # ACM-COM QS Filtering to libRadtran data: 
         qs = int(np.asarray(ACMCOM.quality_status[ia]).squeeze())
         # F_libRad = data if qs in (0, 1) else np.nan
-        F_libRad = data if qs == 0 else np.nan
+        F_libRad = data if qs == 0 else np.nan 
+                    # 0: Good
+                    # 1: Good with warnings
+                    # 2: Not confident
 
         # Write RTM result to file
         flux_file.write(f'{F_libRad:8.2f} {libRad.fn} \n')
@@ -794,13 +798,19 @@ class Scene:
 
 
             if WANT_SUR:
-                # pyranometer_data = np.loadtxt('DATA/SUR_Observations.txt') # Called outside OrbitIDs loop
+                # Extract SUR data
                 obs_val = pyranometer_data[idx_scene]
                 print(f" |  pyranometer = {obs_val:6.1f}  |\n"
                        " |------------------------|\n")
             else:
-                # Extract BMA-FLX data
-                indlatBMAFLX = np.unravel_index(np.argmin(np.abs(BMAFLX.latitude - ACMCOM.latitude_active[ial]), axis=None), BMAFLX.latitude.shape)
+                # Extract TOA data
+                # Find ia for BMAFLX (not same rasolution as ACMCOM)
+                latitude_wanted = ACMCOM.latitude_active[ia]
+                longitude_wanted = ACMCOM.longitude_active[ia]
+                dist = np.sqrt((BMAFLX.latitude - latitude_wanted)**2 + (BMAFLX.longitude - longitude_wanted)**2)
+                indlatBMAFLX = np.unravel_index(np.argmin(dist, axis=None), dist.shape)
+                # OLD! indlatBMAFLX = np.unravel_index(np.argmin(np.abs(BMAFLX.latitude - ACMCOM.latitude_active[ial]), axis=None), BMAFLX.latitude.shape)
+                
                 qs = int(np.asarray(BMAFLX.quality_status[indlatBMAFLX]).squeeze())
                 flux = float(np.asarray(BMAFLX.solar_combined_top_of_atmosphere_flux[indlatBMAFLX]).squeeze())
                 BMAFLX_solar_eup = flux if qs in (0, 2) else np.nan
@@ -811,14 +821,46 @@ class Scene:
                                                         #     3: Both thermal and solar fluxes are valid but not fully trustful; 
                                                         #     4: Neither thermal nor solar fluxes are valid 
                 if write_BMAFLX_to_file:
-                    # Already done
                     # Specs: SmallResolution, QualityStatus 0 or 2 -> solar fully trustfull
                     with open("DATA/TOA_Observations.txt", "a") as BMAFLX_file:
                         BMAFLX_file.write(f"{BMAFLX_solar_eup:.2f}\n")
 
                 print(f" |    BMAFLX = {BMAFLX_solar_eup:6.1f}     |\n"
                        " |------------------------|\n")
+
+            # Access ACM-RT 1D data
+            if write_ACMRT_to_file:
+                flux = np.nan
+                filename = "DATA/SUR_ACMRT1D.txt" if WANT_SUR else "DATA/TOA_ACMRT1D.txt"
+                if ACMRT:
+                    if WANT_SUR:
+                        irec_surface_pixel = ACM3D.index_construction[iacr, ia] 
+                        h = ACMCOM.height_level[:, irec_surface_pixel]
+                        p = ACMCOM.pressure_level[:, irec_surface_pixel]
+                        valid = np.where((h > 0) & (p < 1e10))[0]
+                        if len(valid) > 0:
+                            SUR_idx = valid[-1]
+                            flux = ACMRT.flux_down_solar_1d_all_sky[irec_surface_pixel, SUR_idx]
+                            # flux = ACMRT.flux_down_solar_1d_clear_sky[irec_surface_pixel, SUR_idx]
+
+                            qs = int(np.asarray(ACMRT.quality_status[irec_surface_pixel]).squeeze())
+                            print(f"     QS = {qs}")
+                            flux = flux if qs in (0,1) else np.nan
+                            flux = flux if flux < 1e10 else np.nan
+                    else:
+                        TOA_idx = 0
+                        flux = ACMRT.flux_up_solar_1d_all_sky[ia, TOA_idx]
+
+                        qs = int(np.asarray(ACMRT.quality_status[ia]).squeeze())
+                        print(f"     QS = {qs}")
+                        flux = flux if qs in (0,1) else np.nan
+                        flux = flux if flux < 1e10 else np.nan
+
+                print(f" |    ACMRT  = {flux:6.1f}     |\n"
+                        " |------------------------|\n")
                 
+                with open(filename, "a") as ACMRT_file:
+                    ACMRT_file.write(f"{flux:.2f}\n")
         return
                                                                                                        
     
@@ -1285,6 +1327,8 @@ class Scene:
             self.height_levels=SD['height_levels'][()]
             self.flux_up_solar_1d_all_sky=SD['flux_up_solar_1d_all_sky'][()]
             self.flux_up_solar_3d_all_sky=SD['flux_up_solar_3d_all_sky'][()]
+            self.flux_down_solar_1d_all_sky=SD['flux_down_solar_1d_all_sky'][()]
+            self.flux_down_solar_1d_clear_sky=SD['flux_down_solar_1d_clear_sky'][()]
             
             self.flux_up_thermal_1d_all_sky=SD['flux_up_thermal_1d_all_sky'][()]
             self.flux_up_thermal_3d_reference_height_all_sky=SD['flux_up_thermal_3d_reference_height_all_sky'][()]
@@ -1292,11 +1336,14 @@ class Scene:
             # BG: only single atmosphere here!
             self.flux_up_solar_1d_all_sky=self.flux_up_solar_1d_all_sky[0,:,:]
             self.flux_up_solar_3d_all_sky=self.flux_up_solar_3d_all_sky[0,:,:]
+            self.flux_down_solar_1d_all_sky=self.flux_down_solar_1d_all_sky[0,:,:]
+            self.flux_down_solar_1d_clear_sky=self.flux_down_solar_1d_clear_sky[0,:,:]
             self.flux_up_thermal_1d_all_sky=self.flux_up_thermal_1d_all_sky[0,:,:]
             self.flux_up_thermal_3d_reference_height_all_sky=self.flux_up_thermal_3d_reference_height_all_sky[0,:]   
 
             # BG: add quality-status
-            self.quality_status = SD['quality_status'][()]         
+            self.quality_status = SD['quality_status'][()][0,:]
+         
             
         elif 'ACM_COM' in fn:
             # self.ice_water_content=SD['ice_water_content'][()]*1000 # Convert from kg/m**3 to g/m**3
@@ -1645,6 +1692,9 @@ class Scene:
         thermal_eup_std.long_name = "Standard deviation of thermal upward flux"
         thermal_eup_std[:, :] = self.thermal_e_std
 
+
+        # Shape: 
+        # (along-track, Nx/across-track buffer, Ny/along-track buffer)
         ncf.close()
         
 
@@ -1672,15 +1722,20 @@ if __name__ == "__main__":
     
     
 
-    # BG: ----- Things to remember ---------
-    #   1. WANT_3D
-    #   2. idx_scene
-    #   3. fig_index
-    # --------------------------------------
+
 
      
-    WANT_3D  = False      # BG: used in flux plot (DISORT or MYSTIC)
-    WANT_SUR = False
+    WANT_3D  = False      
+    WANT_SUR = True
+
+    # Write fluxes to files:
+    write_BMAFLX_to_file    = False                
+    write_ACMRT_to_file     = False
+
+
+
+
+
 
 
     ToDo_idx = 0
@@ -1690,6 +1745,10 @@ if __name__ == "__main__":
         'plot_temporal_pyranometer',
     ][ToDo_idx]
     
+
+
+
+
     
     # BG: additional settings
     AssDomainSize       = [(1,1), (3,3), (11,11)][0]   # Size of assessment domain (across-track, along-track) in libRadtran 3D MC
@@ -1698,15 +1757,14 @@ if __name__ == "__main__":
     want_product2       = False                 # Sets Scene4 = librad2 (in PlotLine)
     want_average_line   = False                 # Average line of DISORT-flux-values
     want_ps             = False                 # BG: if want DISORT pseudospherical (WANT_3D overwrite want_ps)
-    want_info           = False                 # Prints out SZA, Prints out CF
-    if want_info: want_2D = False               # CF of 2D swat, or 1D nadir column
     stacked             = True                  # If add quanteties to plot, if should get own figure below
     verbose             = False
-    write_BMAFLX_to_file= False                 # If make TOA_Observation.txt (use "a": append)
+    want_info           = False                 # Prints out SZA, Prints out CF
+                                                # if want_info: want_2D = False               # CF of 2D swat, or 1D nadir column
+    
+    
 
-    # Notes:
-    # Run with verbose -> printing -> 0.12h
-    # Run without verbose -> no printing -> 0.11h
+   
 
 
 
@@ -1723,9 +1781,7 @@ if __name__ == "__main__":
 
 
     idx_source = 0
-    sources = [['solar'], 
-              ['thermal'],
-              ['solar', 'thermal']][idx_source] 
+    sources = ['solar']
 
     OrbitIDs = []
     StationList = []
@@ -1853,6 +1909,13 @@ if __name__ == "__main__":
     rte_specs = 'MYSTIC' if WANT_3D else 'DISORT'
     obs_level = 'SUR_' if WANT_SUR else 'TOA_'
     folder    = 'DATA/'
+
+
+    additional_spesifications   = '_SUR_ClearSky'
+    rte_specs                   = 'DISORT_ClearSky'
+    librad_type                 = 'SNNA'
+
+
     out_file_name1 = folder + obs_level + rte_specs + ".txt"
 
     pyranometer_data = np.loadtxt("DATA/SUR_Observations.txt", usecols=0)
@@ -1912,12 +1975,26 @@ if __name__ == "__main__":
             #---------------------------------------------
 
 
+            Product ='ACM_RT_'      #1D and 3D RTM fluxes
+            ProductPath = '*'+Product+'*'+OrbitID+'*'
+            ProductFile = os.path.join(pathL2TestProducts, ProductPath, '*'+Product+'*.h5')
+            try: 
+                ProductFile = sorted(glob.glob(ProductFile))[0]
+                ACMRT = Scene(Name=OrbitID)
+                ACMRT.ReadEarthCAREh5(ProductFile)
+                ACMRT.SetExtent()
+            except IndexError: 
+                # If do not find ACM-RT
+                print(f"\n     Do not find product {Product}") 
+                ACMRT = None
+
+
             Product ='ACM_COM'
             ProductPath = '*'+Product+'*'+OrbitID+'*'
             ProductFile = os.path.join(pathL2TestProducts, ProductPath, '*'+Product+'*.h5')
             ProductFile = sorted(glob.glob(ProductFile))[0]
             ACMCOM = Scene(Name=OrbitID, verbose=verbose)
-            ACMCOM.ReadEarthCAREh5(ProductFile, verbose=verbose, ACM3D=ACM3D)
+            ACMCOM.ReadEarthCAREh5(ProductFile, ACM3D=ACM3D)
             ACMCOM.SetExtent()
                            
             # Extract Baseline ---------------------------   
@@ -1936,12 +2013,9 @@ if __name__ == "__main__":
                     lat_, lon_ = str(lat), str(lon)
                     break
             out = Find_Overpass_Info.find_track_values(ACMCOM.fn, lat_, lon_)
-            iacr  = out["across_index"] if WANT_SUR else 151
+            iacr  = out["across_index"] if WANT_SUR else 150
             ial   = out["along_index"]
             time_overpass = out["time_iso_utc"]
-
-
-
 
 
             # Fix Baseline

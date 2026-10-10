@@ -93,9 +93,11 @@ def Calc3DBufferSize(ACM3D, ia, iacr, BMAFLX, which_buffer):
     elif which_buffer == 3: along_dim, across_dim = 20, 20 # (41,41) comp-domain  ~BBR + 35 pixels-buffer
         # NEW:
     elif which_buffer == 4:  # Sun-depenent buffer
+        cloud_hight_estimate = 12 # Upper bound clouds (in Northern Latitudes)
         LOWER_THRESHOLD_along_dim  = 10
         LOWER_THRESHOLD_across_dim = 10
         UPPER_THRESHOLD_across_dim = 30
+        UPPER_THRESHOLD_along_dim  = abs(cloud_hight_estimate * np.tan(np.deg2rad(SZA_THRESHOLD)))
 
         cloud_hight_estimate = 12 # Upper bound clouds (in Northern Latitudes)
 
@@ -135,12 +137,9 @@ def Calc3DBufferSize(ACM3D, ia, iacr, BMAFLX, which_buffer):
                         # angle = np.degrees(np.arctan2(dlon, dlat)) % 360
                         # if WANT_PRINTS: print(f"Satellite Trajectory Angle = {angle:.0f}°")
 
-        latitude_wanted = ACMCOM.latitude_active[ia]
-        longitude_wanted = ACMCOM.longitude_active[ia]
-        dist = np.sqrt((BMAFLX.latitude - latitude_wanted)**2 + (BMAFLX.longitude - longitude_wanted)**2)
-        indlatBMAFLX = np.unravel_index(np.argmin(dist, axis=None), dist.shape)
-        sza  = BMAFLX.solar_zenith_angle[indlatBMAFLX,1].squeeze()  # Nadir view is in element one
-        phi0 = BMAFLX.solar_azimuth_angle[indlatBMAFLX,1].squeeze()  # Nadir view is in element one
+        sza  = get_sza(ACMCOM, BMAFLX, ial)
+        phi0 = BMAFLX.solar_azimuth_angle[BMAFLX.indlatBMAFLX,1].squeeze()  # Nadir view is in element one
+
 
                     ################# OLD #################################
                         # phi_diff = (phi0 - angle) % 360 # % 360 means the difference is wrapped within [0, 360) degrees
@@ -165,7 +164,10 @@ def Calc3DBufferSize(ACM3D, ia, iacr, BMAFLX, which_buffer):
 
         # Not get across-track dim outside ECA frame (which end at pixel 0 and 190)
         max_across_index = 190 
+        max_along_index  = 5059
+        min_along_index  = 90
         across_dim = min(across_dim, max_across_index - iacr, UPPER_THRESHOLD_across_dim)
+        along_dim  = min(along_dim, max_along_index - ia, ia - min_along_index, UPPER_THRESHOLD_along_dim)
         if WANT_PRINTS: print(f"along_dim = {along_dim} across_dim = {across_dim}")
         if WANT_PRINTS: print("\n\n")
     
@@ -178,6 +180,20 @@ def Calc3DBufferSize(ACM3D, ia, iacr, BMAFLX, which_buffer):
 
 
     return Nx, Ny, iacrosses, ialongs
+
+
+
+
+def get_sza(ACMCOM, BMAFLX, ia):
+    latitude_wanted = ACMCOM.latitude_active[ia]
+    longitude_wanted = ACMCOM.longitude_active[ia]
+    dist = np.sqrt((BMAFLX.latitude - latitude_wanted)**2 + (BMAFLX.longitude - longitude_wanted)**2)
+    indlatBMAFLX = np.unravel_index(np.argmin(dist, axis=None), dist.shape)
+    BMAFLX.indlatBMAFLX=indlatBMAFLX
+    sza = BMAFLX.solar_zenith_angle[BMAFLX.indlatBMAFLX,1].squeeze()  # Nadir view is in element one
+    return sza
+
+
 
 
 #def GetElevation(lat_wanted, lon_wanted, DEMfolder = '../data/DEM/'):
@@ -646,6 +662,11 @@ def SetRTM(UVS, ia, iacr, ACM3D=None, AMACD=None, ACMCOM=None, ACMRT=None, BMAFL
         mc_photons = int(1e6)  # For testing purposes, reduce the number of photons to speed up the simulation
 
 
+
+        """ --- test 1e7 -----"""
+        mc_photons = int(1e7)  
+
+
         if TESTING_OLD_FRAMES: 
             mc_photons = int(1e6)
     
@@ -763,12 +784,49 @@ def SetRTM(UVS, ia, iacr, ACM3D=None, AMACD=None, ACMCOM=None, ACMRT=None, BMAFL
             UVS.inp['wc_file 1D']=wc_file_1D
             f = open(wc_file_1D,'w')
             iwc=0
+            if RUN_SINGLE_CLOUD:
+                Nx, Ny, iacrosses, ialongs = Calc3DBufferSize(ACM3D, ia, iacr, BMAFLX, which_buffer)    
+                wc_value, wcreff_value = 1e-2, 10.0
+                h_min, h_max = 2000, 3000
+                # Make a 2x2 cloud in the center of the domain
+                cloud_start_X = Nx//2 + Nx//8
+                cloud_start_Y = Ny//2 + Ny//8
+                irec_inside_cloud = []
             for h,p,wc,wcreff in zip(ACMCOM.height_level[1:,irec_surface_pixel],ACMCOM.pressure_level[1:,irec_surface_pixel],\
                                      ACMCOM.liquid_water_content[:,irec_surface_pixel], ACMCOM.liquid_effective_radius[:,irec_surface_pixel]):
                 if h > -0.0000001 and p < 1e+10:
-                    if wcreff > 25: wcreff=25.0
-                    elif wcreff < 1.0: wcreff=1.0
-                    f.write('{:8.3f} {:10.5f} {:8.3f}\n'.format(np.abs(h/1000.), wc, wcreff))
+                    
+                    if RUN_SINGLE_CLOUD:
+                        profile_in_cloud = False
+                        ix = 1
+                        for iac in iacrosses:
+                            iy = 1
+                            for ial in ialongs:
+                                inside_cloud_region = (
+                                    cloud_start_X <= ix < cloud_start_X + 2
+                                    and cloud_start_Y <= iy < cloud_start_Y + 2
+                                )
+                                # Check if the current grid point is inside the cloud region
+                                if inside_cloud_region:
+                                    irec_inside_cloud = ACM3D.index_construction[iac, ial]
+                                    
+                                    
+
+                        if irec_surface_pixel in irec_inside_cloud:
+                            profile_in_cloud = True
+                       
+                        if profile_in_cloud and h_min <= h <= h_max:
+                            wc, wcreff = wc_value, wcreff_value
+                        else:
+                            wc, wcreff = 0.0, 0.0
+
+                        f.write('{:8.3f} {:10.5f} {:8.3f}\n'.format(np.abs(h / 1000.), wc, wcreff))
+
+                          
+                    else:
+                        if wcreff > 25: wcreff=25.0
+                        elif wcreff < 1.0: wcreff=1.0
+                        f.write('{:8.3f} {:10.5f} {:8.3f}\n'.format(np.abs(h/1000.), wc, wcreff))
                     iwc=iwc+1
 
             f.close()
@@ -850,8 +908,8 @@ def SetRTM(UVS, ia, iacr, ACM3D=None, AMACD=None, ACMCOM=None, ACMRT=None, BMAFL
 
 
 
-                    if TESTING_OLD_FRAMES:
-                        if TEST_ARVE_CODE_v1 or TEST_MY_NEW_CODE_v2 or TEST_MY_NEW_CODE_v3:
+                    if TESTING_OLD_FRAMES or RUN_SINGLE_CLOUD:
+                        if TEST_ARVE_CODE_v1 or TEST_MY_NEW_CODE_v2 or TEST_MY_NEW_CODE_v3 or RUN_SINGLE_CLOUD:
                             # Make a 2x2 cloud in the center of the domain
                             cloud_start_X = Nx//2 + Nx//8
                             cloud_start_Y = Ny//2 + Ny//8
@@ -866,11 +924,12 @@ def SetRTM(UVS, ia, iacr, ACM3D=None, AMACD=None, ACMCOM=None, ACMRT=None, BMAFL
                             #     continue
 
                             wc_value = 1e-2
+                            wcreff_value = 10.0
                             lwc = np.full(lwc.shape, wc_value, dtype=float) # making constant liquid water content
 
                             # Find indecies for constructed cloud
                             h_min = 2000
-                            h_max = 3000 + 4000
+                            h_max = 3000 
 
                             if ix == cloud_start_X and iy == cloud_start_Y:
                                 valid = (hl > -1e-4) & (pl < 1e10)
@@ -909,8 +968,13 @@ def SetRTM(UVS, ia, iacr, ACM3D=None, AMACD=None, ACMCOM=None, ACMRT=None, BMAFL
                                     if TEST_ARVE_CODE_v1 or TEST_MY_NEW_CODE_v2 or TEST_MY_NEW_CODE_v3:
                                         if inside_cloud_region and iz_min <= iz < iz_max: # h_min < h < h_max:
                                             # set wc
-                                            f.write('{:d} {:d} {:d} {:f} {:f}\n'.format(ix, iy, iz, wc, 10.0))
+                                            f.write('{:d} {:d} {:d} {:f} {:f}\n'.format(ix, iy, iz, wc, wcreff_value))
                                             print(f'Writing wc={wc} at ix={ix}, iy={iy}, iz={iz}')
+                                elif RUN_SINGLE_CLOUD:
+                                    if inside_cloud_region and iz_min <= iz < iz_max: # h_min < h < h_max:
+                                        # set wc
+                                        f.write('{:d} {:d} {:d} {:f} {:f}\n'.format(ix, iy, iz, wc, wcreff_value))
+                                        print(f'Writing wc={wc} at ix={ix}, iy={iy}, iz={iz}')
                     
                                 else:
                                     f.write('{:d} {:d} {:d} {:f} {:f}\n'.format(ix, iy, iz, wc, wcreff))
@@ -1070,54 +1134,58 @@ def SetRTM(UVS, ia, iacr, ACM3D=None, AMACD=None, ACMCOM=None, ACMRT=None, BMAFL
     # BG: creating a empty (no clouds) tmp*wc3D.dat files 
     # BG: to my understanding -> treat atmosphere as 3D structure -> maching DEM -> no errors
     if wccloud == False and iccloud == False:
-        UVS.inp['wc_properties']='mie'
+        if RTdimension == '3D': 
+            UVS.inp['wc_properties']='mie'
 
-        iz=0
-        last_h=99999
-        for h,p in zip(ACMCOM.height_level[1:,ia],ACMCOM.pressure_level[1:,ia]):
-            if h > -1e-4 and p < 1e+10:
-                last_h=h
-                last_p=p
+            iz=0
+            last_h=99999
+            for h,p in zip(ACMCOM.height_level[1:,ia],ACMCOM.pressure_level[1:,ia]):
+                if h > -1e-4 and p < 1e+10:
+                    last_h=h
+                    last_p=p
+                    iz=iz+1
+
+            if np.abs(last_h) > 1e-4 and last_p < 1e+10:
                 iz=iz+1
-
-        if np.abs(last_h) > 1e-4 and last_p < 1e+10:
-            iz=iz+1
+                
+            Nz = iz-1
+            flag = 3 # mystic 3D format
+            dx = 1.0 # 1 km horizontal resolution
+            dy = 1.0
             
-        Nz = iz-1
-        flag = 3 # mystic 3D format
-        dx = 1.0 # 1 km horizontal resolution
-        dy = 1.0
-        wc_file_3D=input_dir+'tmp'+f"{OrbitID}_{ia:04d}"+'wc3D.dat'
-        f = open(wc_file_3D,'w')
-        f.write('{:d} {:d} {:d} {:d}\n'.format(Nx, Ny, Nz, flag))
-        f.write('{:f} {:f} '.format(dx, dy))
+            wc_file_3D=input_dir+'tmp'+f"{OrbitID}_{ia:04d}"+'wc3D.dat'
+            f = open(wc_file_3D,'w')
+            f.write('{:d} {:d} {:d} {:d}\n'.format(Nx, Ny, Nz, flag))
+            f.write('{:f} {:f} '.format(dx, dy))
 
-        # Write height axis
-        iz=0
-        hl = ACMCOM.height_level[1:,ia]; hl = hl[::-1]  #reverse order
-        pl = ACMCOM.pressure_level[1:,ia]; pl = pl[::-1]
-        indx = np.where( (hl>-1e-04) & (pl<1e+10) )
-        first_h = 999999
-        if len(indx[0])>=1:
-            first_h=hl[indx[0][0]]
-            if first_h > 0.0: #1e-06:
-                h=0
-                f.write('{:8.3f} '.format(np.abs(h/1000)) )
-                iz=iz+1
+            # Write height axis
+            iz=0
+            hl = ACMCOM.height_level[1:,ia]; hl = hl[::-1]  #reverse order
+            pl = ACMCOM.pressure_level[1:,ia]; pl = pl[::-1]
+            indx = np.where( (hl>-1e-04) & (pl<1e+10) )
+            first_h = 999999
+            if len(indx[0])>=1:
+                first_h=hl[indx[0][0]]
+                if first_h > 0.0: #1e-06:
+                    h=0
+                    f.write('{:8.3f} '.format(np.abs(h/1000)) )
+                    iz=iz+1
 
-        for h,p in zip(hl[indx[0]], pl[indx[0]]):
-            if h > -1e-4 and p < 1e+10:
-                f.write('{:8.3f} '.format(np.abs(h/1000)) )
-                iz=iz+1      
-        f.write('\n')
+            for h,p in zip(hl[indx[0]], pl[indx[0]]):
+                if h > -1e-4 and p < 1e+10:
+                    f.write('{:8.3f} '.format(np.abs(h/1000)) )
+                    iz=iz+1      
+            f.write('\n')
 
-        # Add dummy line to make mystic run
-        f.write('{:d} {:d} {:d} {:f} {:f}\n'.format(1, 1, 1, 0, 10))
-        f.close()
+            # Add dummy line to make mystic run
+            f.write('{:d} {:d} {:d} {:f} {:f}\n'.format(1, 1, 1, 0, 10))
+            f.close()
 
-        UVS.inp['wc_file 3D']=wc_file_3D
-        UVS.inp['mc_std']=''
-        
+            UVS.inp['wc_file 3D']=wc_file_3D
+            UVS.inp['mc_std']=''
+        else:
+            1
+            
        
         
     # -------------------------------------------------------------------------------------------
@@ -1413,6 +1481,10 @@ if __name__ == "__main__":
 
     How to see availeble resources:
             sinfo -N -p main -t idle,mix -o "%N %t %C"
+
+
+    MYSTIC 1e6 1500 Overpass 40processors: 0.8h
+    MYSTIC 1e7 1500 Overpass 40processors: 1.5h        
     """
 
 
@@ -1424,7 +1496,7 @@ if __name__ == "__main__":
 
     ##############################################################################################
     WANT_SUR = True         # zout at SUR or TOA
-    WANT_3D  = True        # MYSTIC or DISORT
+    WANT_3D  = False        # MYSTIC or DISORT
 
     verbose  = False        # Want verbose output from RTM
     want_ps  = False        # Psudospherical solver
@@ -1589,13 +1661,47 @@ if __name__ == "__main__":
         # if OrbitID not in ('00912C', '05673C'):
         #     continue
         
-
+        RUN_SINGLE_CLOUD    = True
+        RUN_DISORT_3D_PLOT  = False
         TESTING_OLD_FRAMES  = False
         TESTING_NEW_BUFFER  = False
         TEST_ARVE_CODE_v1   = False
         TEST_MY_NEW_CODE_v2 = False
         TEST_MY_NEW_CODE_v3 = False
         ################################################################################################################
+        if RUN_SINGLE_CLOUD:
+            RTOutNetcdfPath = './RESULTS_TEST/'  # Folder name for netcdf result files
+            # Filefjell   00928D
+            if OrbitID != '00928D' or Station != 'Filefjell':
+                continue
+            surface = False
+            wccloud = True      
+            iccloud = False       
+            aerosol = False 
+
+            additional_spesifications += '_SINGLE_CLOUD'
+
+
+        if RUN_DISORT_3D_PLOT:
+            RTOutNetcdfPath = './RESULTS_TEST/'  # Folder name for netcdf result files
+            # # ("Iskoras", "00912C"), # 0: obs=150 3d=144 1d=500 (not too cloudy, fun scene)
+            # if OrbitID != '00912C':
+            #     continue
+
+            # # ("Filefjell", "00928D")
+            # if OrbitID != '00928D':
+            #     continue
+
+            # # ("Hopen", "06296C"),
+            # if OrbitID != '06296C':
+            #     continue
+
+            
+            # ("Jan-Mayen", "06437C")
+            if OrbitID != '06437C':
+                continue
+
+
         if TESTING_NEW_BUFFER:
             RTOutNetcdfPath = './RESULTS_TEST/'  # Folder name for netcdf result files
         
@@ -1620,6 +1726,7 @@ if __name__ == "__main__":
             # Filefjell   00928D
             if OrbitID != '00928D':
                 continue
+            
 
             # OrbitID = 'TESTING_OLD_FRAMES_NEW_PHI_CODE'
 
@@ -1651,7 +1758,7 @@ if __name__ == "__main__":
             # SceneName = 'Orbit_06600C'
         ################################################################################################################
 
-
+        ACM3D, ACMCOM, BMAFLX, libRad = None, None, None, None
 
         Product ='ALL_3D_'
         ProductPath = '*'+Product+'*'+OrbitID+'*'
@@ -1757,7 +1864,12 @@ if __name__ == "__main__":
             elif which_buffer == 1 : Nx, Ny =  5,  5; buffer_str = 'TEST   Buffer (5 x 5)'                      #   1.5         |                   |
             elif which_buffer == 2 : Nx, Ny = 21, 21; buffer_str = '~BBR +  5 pixels-buffer  (21 x 21)'         #    4          |       ~5-8        |       ~0.5-2
             elif which_buffer == 3 : Nx, Ny = 41, 41; buffer_str = '~BBR + 35 pixels-buffer  (41 x 41)'         #    5          |       ~17         |       ~1.6
-            elif which_buffer == 4 : Nx, Ny, _, _ = Calc3DBufferSize(ACM3D, ial, iacr, BMAFLX, which_buffer)                   # Sun-depenent buffer
+            elif which_buffer == 4 : 
+                sza = get_sza(ACMCOM, BMAFLX, ial)
+                if sza > SZA_THRESHOLD:
+                    Nx, Ny = 1, 1 # Default Horizontal Computaion-Domain Size 
+                else:
+                    Nx, Ny, _, _ = Calc3DBufferSize(ACM3D, ial, iacr, BMAFLX, which_buffer)                   # Sun-depenent buffer
         else:                             buffer_str = ''
         
 
@@ -1797,6 +1909,12 @@ if __name__ == "__main__":
         # Might take for DISORT:
         # ialongs = np.arrange(ial-5, ial+5, 1) to average over 11 points as MYSTIC!
         #########################
+        if RUN_DISORT_3D_PLOT or (RUN_SINGLE_CLOUD and not WANT_3D):
+            N_pixels = 60
+            N_pixels = 40
+            ialongs = np.arange(ial - N_pixels, ial + N_pixels + 1, 1)
+
+
 
         if 'AllLevels' in additional_spesifications:
             ialongs_range = 20
@@ -1812,13 +1930,7 @@ if __name__ == "__main__":
         # Each MPI rank will process all ialongs for its assigned orbit in sequence.
         
         for ia in ialongs:
-            latitude_wanted = ACMCOM.latitude_active[ia]
-            longitude_wanted = ACMCOM.longitude_active[ia]
-            dist = np.sqrt((BMAFLX.latitude - latitude_wanted)**2 + (BMAFLX.longitude - longitude_wanted)**2)
-            indlatBMAFLX = np.unravel_index(np.argmin(dist, axis=None), dist.shape)
-            BMAFLX.indlatBMAFLX=indlatBMAFLX
-
-            sza = BMAFLX.solar_zenith_angle[BMAFLX.indlatBMAFLX,1]  # Nadir view is in element one
+            sza = get_sza(ACMCOM, BMAFLX, ia)
             # print("SZA = ", sza)
 
             # --- BG: ADD THIS BLOCK ---
@@ -1828,7 +1940,10 @@ if __name__ == "__main__":
             e_thermal_std = np.nan
             # ----------------------
             
-
+            # Skip the whole pixel if use sun-depenent buffer and the sun is below the threshold           
+            if which_buffer == 4 and sza >= SZA_THRESHOLD:
+                continue
+                
             BufferOK = Check3DBufferSize(ACM3D, ia, iacr, which_buffer)
             if not BufferOK:
                 source='Buffer'
@@ -2085,4 +2200,6 @@ if __name__ == "__main__":
     print(f"            Worker {my_rank:2} finished run. It took {tt.total_seconds()/3600:.2f} hours \n\n\n\n\n\n\n")
 
     MPI.Finalize()
-    
+
+
+

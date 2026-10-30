@@ -1726,7 +1726,7 @@ if __name__ == "__main__":
 
      
     WANT_3D  = False      
-    WANT_SUR = True
+    WANT_SUR = False
 
     # Write fluxes to files:
     write_BMAFLX_to_file    = False                
@@ -1910,10 +1910,11 @@ if __name__ == "__main__":
     obs_level = 'SUR_' if WANT_SUR else 'TOA_'
     folder    = 'DATA/'
 
-
-    additional_spesifications   = '_SUR_ClearSky'
-    rte_specs                   = 'DISORT_ClearSky'
-    librad_type                 = 'SNNA'
+    #####################################################
+    # additional_spesifications   = '_TOA_ClearSky'
+    # rte_specs                   = 'DISORT_ClearSky'
+    # librad_type                 = 'SNNA'
+    #########################################################
 
 
     out_file_name1 = folder + obs_level + rte_specs + ".txt"

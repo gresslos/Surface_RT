@@ -1299,6 +1299,7 @@ def SetRTM(UVS, ia, iacr, ACM3D=None, AMACD=None, ACMCOM=None, ACMRT=None, BMAFL
     if surface:
         # BG: Ocean BRDF properties by Cox and Munk (1954) method
         # BG: Add if surface = Ocean (idx = 6)
+        # NOTE: -> not used here given is not over ocean!
         if ACMCOM.surface_albedo_classification[iacr, ia] == 6: # Shape [across_track, along_track] = open water
             UVS.inp['brdf_cam']=f'u10 {ACMCOM.wind_speed_at_10_meters[iacr, ia]}'
         #     print(f'                                                                         Use Cox and Munk Model for ia = {ia}')
@@ -1495,7 +1496,7 @@ if __name__ == "__main__":
 
 
     ##############################################################################################
-    WANT_SUR = True         # zout at SUR or TOA
+    WANT_SUR = False         # zout at SUR or TOA
     WANT_3D  = False        # MYSTIC or DISORT
 
     verbose  = False        # Want verbose output from RTM
@@ -1524,6 +1525,9 @@ if __name__ == "__main__":
 
     if WANT_SUR: additional_spesifications += "_SUR"
     else:        additional_spesifications += "_TOA"
+
+    # additional_spesifications += "_ClearSky"
+
 
 
 
@@ -1661,7 +1665,7 @@ if __name__ == "__main__":
         # if OrbitID not in ('00912C', '05673C'):
         #     continue
         
-        RUN_SINGLE_CLOUD    = True
+        RUN_SINGLE_CLOUD    = False
         RUN_DISORT_3D_PLOT  = False
         TESTING_OLD_FRAMES  = False
         TESTING_NEW_BUFFER  = False

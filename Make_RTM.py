@@ -452,6 +452,9 @@ def SetRTM(UVS, ia, iacr, ACM3D=None, AMACD=None, ACMCOM=None, ACMRT=None, BMAFL
         UVS.inp['mc_basename']=UVS.mc_basename
         # ESO: set randomseed explicitly (for error checking and debugging)
         UVS.inp['mc_randomseed'] = (ia+1)*72341//11
+
+        # UVS.inp['mc_randomseed'] += 1
+        # If occur SingleRun error -> try change seed -> change random numbers used in MYSTIC to sample photon paths through atmos interactions
         
 
         if RTdimension == '3D':  
@@ -462,98 +465,6 @@ def SetRTM(UVS, ia, iacr, ACM3D=None, AMACD=None, ACMCOM=None, ACMRT=None, BMAFL
             UVS.inp['mc_reference_to_nn']='' # The sampled pixels correspond to the surface pixels.
           
             if (Nx > 1) & (Ny > 1):  # BG: if not MCIPA
-                                    # # Check if latitude increase or decrease
-                                    # is_increasing = np.all(np.diff(ACM3D.latitude[:, ia]) > 0)
-                                    # ######### BG NEW 09.02.26 #########
-                                    # is_increasing = np.all(np.diff(ACM3D.latitude[iacr, ialongs]) > 0)
-                                    # ####################################
-                                    # # In wc_file x propagates east and y propagates north, hence if latitude
-                                    # # is increasing (ascending node) keep ialongs, but reverse iacrosses.
-                                    # # If latitude is decreasing (descending node), reverse ialongs and
-                                    # # keep iacrosses.
-                
-
-
-                                    # # TEST_ARVE_CODE       = True
-                                    # # TEST_MY_NEW_CODE_v01 = False
-                                    # # TEST_MY_NEW_CODE_v02 = False
-
-
-
-                                    
-                                    # if TEST_ARVE_CODE_v1:
-                                    #     if is_increasing:
-                                    #         # print('Increasing latitude')
-                                    #         # print(f'First latitude = {ACM3D.latitude[iacr, ialongs[0]]}    Last latitude = {ACM3D.latitude[iacr, ialongs[-1]]}')
-                                    #         iacrosses=iacrosses[::-1]  # reverse: ialong=[1,2,3,4] --> ialong=[4,3,2,1]
-                                    #         ialongs=ialongs
-                                    #     else:
-                                    #         # print('Decreasing latitude')
-                                    #         # print(f'First latitude = {ACM3D.latitude[iacr, ialongs[0]]}    Last latitude = {ACM3D.latitude[iacr, ialongs[-1]]}')
-                                    #         iacrosses=iacrosses
-                                    #         ialongs=ialongs[::-1]
-
-
-
-                                    #     # 3D wc and ic files are aligned parallel to the meridians, the EartCARE swath is not.
-                                    #     # To correct for this perform a solar azimuth angle shift
-                                    #     p0 = (ACM3D.longitude[iacrosses[0],  ialongs[0]],   ACM3D.latitude[iacrosses[0],  ialongs[0]])
-                                    #     p1 = (ACM3D.longitude[iacrosses[0],  ialongs[-1]],  ACM3D.latitude[iacrosses[0],  ialongs[-1]])
-                                    #     px = (p0[0], p1[1])
-                                                        
-
-                                    #     p0 = pdeg2km(p0)
-                                    #     p1 = pdeg2km(p1)
-                                    #     px = pdeg2km(px)
-                                            
-                                    #     p0p1 = np.sqrt(np.power(p1[0]-p0[0],2) + np.power(p1[1]-p0[1],2))
-                                    #     p0px = np.sqrt(np.power(px[0]-p0[0],2) + np.power(px[1]-p0[1],2))
-                                                        
-                                            
-                                    #     # Caculate angle betweeen satellite track and meridian line (north/south)
-                                    #     phi0_shift = np.rad2deg(np.arccos(p0px/p0p1)) 
-                                    #     #print('phi0, phi0_shift', phi0, phi0_shift)
-  
-                                    #     if phi0 > 0 and phi0< 180:
-                                    #         phi0 = phi0-phi0_shift
-                                    #     else:
-                                    #         phi0 = phi0+phi0_shift
-                                                
-                                    #     #print('phi0', phi0, phi0_shift)
-                                    
-
-
-                                    
-                                    # if TEST_MY_NEW_CODE_v2:
-                                    #     # 1. Calculate solar azimuth track shift BEFORE reversing array indices
-                                    #     p0 = (ACM3D.longitude[iacrosses[0],  ialongs[0]],   ACM3D.latitude[iacrosses[0],  ialongs[0]])
-                                    #     p1 = (ACM3D.longitude[iacrosses[0],  ialongs[-1]],  ACM3D.latitude[iacrosses[0],  ialongs[-1]])
-                                    #     px = (p0[0], p1[1])
-
-                                    #     p0_km = pdeg2km(p0)
-                                    #     p1_km = pdeg2km(p1)
-                                    #     px_km = pdeg2km(px)
-
-                                    #     p0p1 = np.sqrt(np.power(p1_km[0] - p0_km[0], 2) + np.power(p1_km[1] - p0_km[1], 2))
-                                    #     p0px = np.sqrt(np.power(px_km[0] - p0_km[0], 2) + np.power(px_km[1] - p0_km[1], 2))
-
-                                    #     # Calculate angle between satellite track and meridian line
-                                    #     phi0_shift = np.rad2deg(np.arccos(p0px / p0p1))
-                                    #     print(f"phi0_shift: {phi0_shift}")
-
-                                    #     # 2. Reverse indices AND update phi0 according to ascending/descending node
-                                    #     if is_increasing:
-                                    #         iacrosses = iacrosses[::-1]          # Reverse x-axis
-                                    #         phi0 = (360 - phi0) % 360            # Mirror x-component of solar azimuth
-                                    #         phi0 = (phi0 - phi0_shift) if (0 < phi0 < 180) else (phi0 + phi0_shift)
-                                    #     else:
-                                    #         ialongs = ialongs[::-1]              # Reverse y-axis
-                                    #         phi0 = (180 - phi0) % 360            # Mirror y-component of solar azimuth
-                                    #         phi0 = (phi0 + phi0_shift) if (0 < phi0 < 180) else (phi0 - phi0_shift)
-
-                                    # if TEST_MY_NEW_CODE_v3:
-
-
                 # Code below is relativly new, created 16.09.26 (found error in Arve's old code)
                 # Do not reverse along- or across-track
                 # Just modify Phi0 to accound for satellite track direction
@@ -1135,11 +1046,9 @@ def SetRTM(UVS, ia, iacr, ACM3D=None, AMACD=None, ACMCOM=None, ACMRT=None, BMAFL
     # BG: to my understanding -> treat atmosphere as 3D structure -> maching DEM -> no errors
     if wccloud == False and iccloud == False:
         if RTdimension == '3D': 
-            UVS.inp['wc_properties']='mie'
-
             iz=0
             last_h=99999
-            for h,p in zip(ACMCOM.height_level[1:,ia],ACMCOM.pressure_level[1:,ia]):
+            for h,p in zip(ACMCOM.height_level[1:,irec_surface_pixel],ACMCOM.pressure_level[1:,irec_surface_pixel]):
                 if h > -1e-4 and p < 1e+10:
                     last_h=h
                     last_p=p
@@ -1147,24 +1056,21 @@ def SetRTM(UVS, ia, iacr, ACM3D=None, AMACD=None, ACMCOM=None, ACMRT=None, BMAFL
 
             if np.abs(last_h) > 1e-4 and last_p < 1e+10:
                 iz=iz+1
-                
-            Nz = iz-1
+
+            Nz = iz-1 #ACMCOM.height_level[1:,ia].shape[0]
             flag = 3 # mystic 3D format
             dx = 1.0 # 1 km horizontal resolution
             dy = 1.0
-            
             wc_file_3D=input_dir+'tmp'+f"{OrbitID}_{ia:04d}"+'wc3D.dat'
             f = open(wc_file_3D,'w')
             f.write('{:d} {:d} {:d} {:d}\n'.format(Nx, Ny, Nz, flag))
             f.write('{:f} {:f} '.format(dx, dy))
-
-            # Write height axis
             iz=0
-            hl = ACMCOM.height_level[1:,ia]; hl = hl[::-1]  #reverse order
-            pl = ACMCOM.pressure_level[1:,ia]; pl = pl[::-1]
+            hl = ACMCOM.height_level[1:,irec_surface_pixel]; hl = hl[::-1]  #reverse order
+            pl = ACMCOM.pressure_level[1:,irec_surface_pixel]; pl = pl[::-1]
             indx = np.where( (hl>-1e-04) & (pl<1e+10) )
             first_h = 999999
-            if len(indx[0])>=1:
+            if len(indx[0]>=1):
                 first_h=hl[indx[0][0]]
                 if first_h > 0.0: #1e-06:
                     h=0
@@ -1174,13 +1080,12 @@ def SetRTM(UVS, ia, iacr, ACM3D=None, AMACD=None, ACMCOM=None, ACMRT=None, BMAFL
             for h,p in zip(hl[indx[0]], pl[indx[0]]):
                 if h > -1e-4 and p < 1e+10:
                     f.write('{:8.3f} '.format(np.abs(h/1000)) )
-                    iz=iz+1      
+                    iz=iz+1
+                
             f.write('\n')
-
             # Add dummy line to make mystic run
             f.write('{:d} {:d} {:d} {:f} {:f}\n'.format(1, 1, 1, 0, 10))
             f.close()
-
             UVS.inp['wc_file 3D']=wc_file_3D
             UVS.inp['mc_std']=''
         else:
@@ -1439,6 +1344,8 @@ def SetRTM(UVS, ia, iacr, ACM3D=None, AMACD=None, ACMCOM=None, ACMRT=None, BMAFL
                 f.write('{:d} {:d} {:e}\n'.format(ix, iy+1, elevation0s[iy]/1000))
             iy=iy+1
 
+        f.close()
+
 
 
     # Solar geometry
@@ -1483,32 +1390,43 @@ if __name__ == "__main__":
     How to see availeble resources:
             sinfo -N -p main -t idle,mix -o "%N %t %C"
 
+    How to see disc ussage Scratch:
+            df -h /scratch/
+
 
     MYSTIC 1e6 1500 Overpass 40processors: 0.8h
     MYSTIC 1e7 1500 Overpass 40processors: 1.5h        
+
+
+
     """
-
-
-    
     start_time = datetime.now(timezone.utc) 
     # print("Run started at", start_time.isoformat())
 
 
 
-    ##############################################################################################
-    WANT_SUR = False         # zout at SUR or TOA
-    WANT_3D  = False        # MYSTIC or DISORT
 
-    verbose  = False        # Want verbose output from RTM
-    want_ps  = False        # Psudospherical solver
-        
-                            
+
+
+
+
+    ##############################################################################################
+    WANT_SUR = True         # zout at SUR or TOA
+    WANT_3D  = True        # MYSTIC or DISORT
+                
     which_buffer = 4
     # 0: MCIPA   1:Test   2: 21x21   3: 41x41   4: sun-dependent buffer
     ################################################################################################
 
    
   
+
+
+
+
+
+    verbose  = False        # Want verbose output from RTM
+    want_ps  = False        # Psudospherical solver
 
     # BG: To distinguish minor modifications to .nc files
     additional_spesifications = '' 
@@ -1599,7 +1517,22 @@ if __name__ == "__main__":
     surface = True      # BG: = False -> default albedo = 0     
     wccloud = True      
     iccloud = True       
-    aerosol = True        
+    aerosol = True     
+
+
+
+
+
+    # For clear-sky simulations, disable clouds
+    wccloud = False      
+    iccloud = False    
+
+
+
+
+
+
+
        
     # See list above where surface, wccloud etc are set to true or false
     processes = list('NNNN')  # N = Not included
@@ -1638,6 +1571,8 @@ if __name__ == "__main__":
     RTMdata = '/xnilu_wrk2/projects/NEVAR/libRadtran/data/' #RTM input data
 
     libRad_version= 'v01_'+rte_solver+'_'+RTdimension+'_'+"".join(processes)
+
+    # libRad_version= 'TEST'
     # --------------------------------------------------------------------------------------------
 
 
@@ -1651,19 +1586,25 @@ if __name__ == "__main__":
         # pathL2TestProducts = '/xnilu_wrk2/projects/NEVAR/data/CalVal/Pyranometers/' # EarthCARE data
         pathL2TestProducts = pathL2TestProducts_base / f'{Station}'
         
-        # if my_rank == 0:
-        #     print("\n\n\n=================================================================================================================")
-        #     print("OrbitID    = ", OrbitID)
-        #     print("Specs      = ", ('SUR' if WANT_SUR else 'TOA') + ' - ' + rte_solver + ' - ' + RTdimension + ' - ' + additional_spesifications + ' - ' + buffer_str)
+   
 
 
 
 
         # """------------ TESTING SLURM ------------------------------ """
-        # # ("Iskoras", "00912C")
-        # # ("Iskoras", "05673C")
-        # if OrbitID not in ('00912C', '05673C'):
+        # if OrbitID != '01301D' or Station != 'Oslo':
         #     continue
+
+        # if OrbitID != '01690D' or Station != 'Oslo':
+        #     continue
+
+        if OrbitID != '06747D' or Station != 'Oslo':
+            continue
+        
+
+
+
+
         
         RUN_SINGLE_CLOUD    = False
         RUN_DISORT_3D_PLOT  = False

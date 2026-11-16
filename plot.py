@@ -43,11 +43,14 @@ def read_flux(filename, REMOVE_STATIONS=None):
 
 def get_solver_info(filename):
     if "DISORT" in filename:
-        # return "DISORT (1D RTM)", "mediumseagreen", "^"
-        return "DISORT (1D RTM)", "red", "^"
+        # solver = "DISORT (1D RTM)"
+        solver = "1D RTM"
+        return solver, "red", "^"
     
     if "MYSTIC" in filename:
-        return "MYSTIC (3D RTM)", "blue", "o"
+        solver = "MYSTIC (3D RTM)"
+        solver = "3D RTM"
+        return solver, "blue", "o"
     if "ACMRT1D" in filename:
         return "ACM-RT (1D RTM)", "darkorange", "s"
 
@@ -63,6 +66,7 @@ def calculate_statistics(x, y):
         "std": np.std(difference),
         "mae": np.mean(np.abs(difference)),
         "rel_bias": np.mean(difference / x) * 100,
+        "rmse": np.sqrt(np.mean(difference**2)),
 
         "diff": difference,
         "absolute_diff": np.abs(difference),
@@ -142,6 +146,40 @@ def across_track_limit(x, y, limit, z=False, idx_lines=None):
         return x, y, z
     return x, y
 
+def get_quality_status(qs_acmcom_file, qs_bmaflx_file, qs_acmrt_file, qs_all3d_file):
+    qs_ACMCOM = np.loadtxt(qs_acmcom_file, usecols=0)
+    qs_BMAFLX = np.loadtxt(qs_bmaflx_file, usecols=0)
+    qs_ACMRT  = np.loadtxt(qs_acmrt_file, usecols=0)
+    qs_ALL3D  = np.loadtxt(qs_all3d_file, usecols=0)
+
+    return qs_ACMCOM, qs_BMAFLX, qs_ACMRT, qs_ALL3D
+
+def apply_qs(x, y, qs_ACMCOM, qs_BMAFLX, qs_ACMRT, qs_ALL3D, rte_solver, OBS_fluxes):
+    # x: Observed fluxes
+    # y: Model fluxes
+
+    # ACMCOM and ALL3D QS to libRad fluxes
+    if "1D" in rte_solver or "3D" in rte_solver:
+        y = np.where(np.isin(qs_ACMCOM, (0, 1)), y, np.nan)
+        y = np.where(np.isin(qs_ALL3D, (0, 1, 2)), y, np.nan)
+    
+    # ACM-RT and ALL3D QS to ACM-RT
+    elif "ACM-RT" in rte_solver:
+        y = np.where(np.isin(qs_ACMRT, (0, 1)), y, np.nan)
+        y = np.where(np.isin(qs_ALL3D, (0, 1, 2)), y, np.nan)
+
+    # ACM-RT and ALL3D QS to ACM-RT fluxes
+    if "ACM-RT" in OBS_fluxes:
+        rte_solver = None
+        x = np.where(np.isin(qs_ACMRT, (0, 1)), x, np.nan)
+        x = np.where(np.isin(qs_ALL3D, (0, 1, 2)), x, np.nan)
+
+    # BMAFLX QS to TOA obs
+    else:
+        if not WANT_SUR:  # BMAFLX QS to TOA obs
+            x = np.where(np.isin(qs_BMAFLX, (0, 2)), x, np.nan)
+
+    return x, y, rte_solver
 
 
 
@@ -252,135 +290,8 @@ def write_info_to_file(RTMs_fluxes, property="Distance"):
 
     
     elif property == "CMF":
-        filename = "DATA/CMF_DISORT" + ("_SUR" if WANT_SUR else "_TOA") + ".txt"
+        filename = "DATA/CMF_MYSTIC_CompDomain" + ("_SUR" if WANT_SUR else "_TOA") + ".txt"
         CMF = []
-        # with open(RTMs_fluxes[0], "r") as file:
-        #     for lines in file:
-        #         line = lines.strip() 
-        #         # Ex line: ./RESULTS/libRad_v01_disort_1D_SWIA_solar_01028B_Oslo_SUR.nc 
-        #         parts = line.split("_")
-        #         OrbitID = parts[-3]
-        #         Station = parts[-2]
-
-        #         # Product ='ACM_RT_'      #1D and 3D RTM fluxes
-        #         # ProductPath = '*'+Product+'*'+OrbitID+'*'
-        #         # Path = Path_base + f'/{Station}'   
-        #         # ACMRT_ProductFile = os.path.join(Path, ProductPath, '*'+Product+'*.h5')
-
-        #         # Product ='ALL_3D_'#'ACM_COM' #'ACM_3D_'#'ACM_COM' #
-        #         # ProductPath = '*'+Product+'*'+OrbitID+'*'
-        #         # ALL3D_ProductFile = os.path.join(Path, ProductPath, '*'+Product+'*.h5')
-
-        #         # Get ACM-COM frames to extract correct BMA-FLX position
-        #         Product ='ACM_COM'
-        #         ProductPath = '*'+Product+'*'+OrbitID+'*'  
-        #         ACMCOM_ProductFile = os.path.join(Path, ProductPath, '*'+Product+'*.h5')
-                
-                
-                
-        #         try: 
-        #             # ACMRT_ProductFile = sorted(glob.glob(ACMRT_ProductFile))[0]
-        #             # ACMRT = ReadEC.Scene(Name=OrbitID)
-        #             # ACMRT.ReadEarthCAREh5(ACMRT_ProductFile)
-        #             # ACMRT.SetExtent()
-
-        #             # ALL3D_ProductFile = sorted(glob.glob(ALL3D_ProductFile))[0]
-        #             # ACM3D = ReadEC.Scene(Name=OrbitID)
-        #             # ACM3D.ReadEarthCAREh5(ALL3D_ProductFile)
-        #             # ACM3D.SetExtent()
-
-        #             ACMCOM_ProductFile = sorted(glob.glob(ACMCOM_ProductFile))[0]
-        #             ACMCOM = ReadEC.Scene(Name=OrbitID)
-        #             ACMCOM.ReadEarthCAREh5(ACMCOM_ProductFile)
-                  
-
-                    
-        #             # Find ialong-track-idx for overpass for overpass
-        #             lat, lon = sites[Station]
-        #             out = Find_Overpass_Info.find_track_values(ACMCOM.fn, lat, lon)
-        #             ial   = out["along_index"]
-        #             iacr  = out["across_index"] if WANT_SUR else 150
-                    
-                    
-
-        #         except IndexError: 
-        #             # If do not find Products-files
-        #             print(f"\n     Do not find product {Product} for Orbit {OrbitID}") 
-        #             CMF.append((np.nan, OrbitID, Station))
-        #             ACMRT = None
-        #             continue
-
-                
-                
-        #         #################### SINGLE PIXEL SETUP ###################################
-        #         h = ACMCOM.height_level[:, ial]
-        #         p = ACMCOM.pressure_level[:, ial]
-        #         valid = np.where((h > 0) & (p < 1e10))[0]
-        #         if len(valid) == 0:
-        #             print(f"No valid surface index found for Orbit {OrbitID}, Station {Station}")
-        #             CMF.append((np.nan, OrbitID, Station))
-        #             continue
-        #         SUR_idx = valid[-1]
-
-        #         if WANT_SUR: 
-        #             # Use reconstructed across-track index 
-        #             i   = ACM3D.index_construction[iacr, ial]
-        #         else:
-        #             # Keep the original index if not using EUP
-        #             i = ial
-        #         F_all_sky = ACMRT.flux_down_solar_1d_all_sky[i, SUR_idx]
-        #         F_clear_sky = ACMRT.flux_down_solar_1d_clear_sky[i, SUR_idx]
-
-
-
-        #         # # #################### Multiple-Pixel SETUP ###################################
-        #         # F_all_sky = 0
-        #         # F_clear_sky = 0
-
-        #         # # # 5x5 setup
-        #         # # N = 2
-
-        #         # # 11x11 setup
-        #         # N = 5
-
-        #         # counter = 0
-        #         # for ial_ in range(ial-N, ial+N+1, 1): # 3x3 setup
-        #         #     for iacr_ in range(iacr-N, iacr+N+1, 1): # 3x3 setup
-        #         #         if WANT_SUR: 
-        #         #             i = ACM3D.index_construction[iacr_, ial_]
-        #         #         else:
-        #         #             i = ial_
-
-        #         #         h = ACMCOM.height_level[:, i]
-        #         #         p = ACMCOM.pressure_level[:, i]
-        #         #         valid = np.where((h > 0) & (p < 1e10))[0]
-        #         #         if len(valid) == 0:
-        #         #             print(f"No valid surface index found for Orbit {OrbitID}, Station {Station}")
-        #         #             continue
-        #         #         SUR_idx = valid[-1]
-                        
-        #         #         F_all_sky += ACMRT.flux_down_solar_1d_all_sky[i, SUR_idx]
-        #         #         F_clear_sky += ACMRT.flux_down_solar_1d_clear_sky[i, SUR_idx]
-        #         #         counter += 1
-
-        #         # if counter > 0:
-        #         #     F_all_sky /= counter
-        #         #     F_clear_sky /= counter
-        #         # else: F_all_sky = F_clear_sky = np.nan
-
-    
-        #         # print(f"F_all_sky = {F_all_sky:.2f}, F_clear_sky = {F_clear_sky:.2f}             (counter = {counter})")
-        #         # ##########################################################################################
-    
-        #         if F_clear_sky > 0:
-        #             CMF_value = F_all_sky / F_clear_sky
-        #         else:
-        #             CMF_value = np.nan
-
-
-        #         print(f"CMF = {CMF_value:<10.2f}               for Orbit {OrbitID}, Station {Station} \n\n")
-        #         CMF.append((CMF_value, OrbitID, Station))
-
         with open(RTMs_fluxes[0], "r") as file_all_sky, open(RTMs_fluxes[1], "r") as file_clear_sky:
             for lines_all_sky, lines_clear_sky in zip(file_all_sky, file_clear_sky):
                 line_all_sky = lines_all_sky.strip() 
@@ -445,6 +356,112 @@ def write_info_to_file(RTMs_fluxes, property="Distance"):
                     file_SUR_DISORT_overlap.write(f"{F_1DSUR:10} {OrbitID} {Station}\n")
                     file_TOA_MYSTIC_overlap.write(f"{F_3DTOA:10} {OrbitID} {Station}\n")
                     file_SUR_MYSTIC_overlap.write(f"{F_3DSUR:10} {OrbitID} {Station}\n")
+
+    elif property == "QS":
+        filename_ACM_COM = "DATA/QS_ACM_COM.txt"
+        filename_BMA_FLX = "DATA/QS_BMA_FLX.txt"
+        filename_ACM_RT  = "DATA/QS_ACM_RT.txt"
+        filename_ALL_3D  = "DATA/QS_ALL_3D.txt"
+
+        ACM_COM_LIST = [] # List of (QS, OrbitID, Station)
+        BMA_FLX_LIST = [] # List of (QS, OrbitID, Station)
+        ACM_RT_LIST  = [] # List of (QS, OrbitID, Station)
+        ALL_3D_LIST  = [] # List of (QS, OrbitID, Station)
+        with open(RTMs_fluxes[0]) as file:
+            for lines in file:
+                line = lines.strip() 
+                # Ex line: ./RESULTS/libRad_v01_disort_1D_SWIA_solar_01028B_Oslo_SUR.nc 
+                parts = line.split("_")
+                OrbitID = parts[-3]
+                Station = parts[-2]
+
+                ACMCOM,     BMAFLX,     ACMRT,     ALL3D     = None, None, None, None
+                QS_ACM_COM, QS_BMA_FLX, QS_ACM_RT, QS_ALL_3D = np.nan, np.nan, np.nan, np.nan
+                ial = None
+                
+    
+                Product ='ACM_COM'
+                ProductPath = '*'+Product+'*'+OrbitID+'*'
+                Path = Path_base + f'/{Station}'   
+                ACMCOM_ProductFile = os.path.join(Path, ProductPath, '*'+Product+'*.h5')
+                Product ='BMA_FLX'
+                ProductPath = '*'+Product+'*'+OrbitID+'*'
+                Path = Path_base + f'/{Station}'   
+                BMAFLX_ProductFile = os.path.join(Path, ProductPath, '*'+Product+'*.h5')
+                Product ='ACM_RT'
+                ProductPath = '*'+Product+'*'+OrbitID+'*'
+                Path = Path_base + f'/{Station}'   
+                ACMRT_ProductFile = os.path.join(Path, ProductPath, '*'+Product+'*.h5')
+                Product ='ALL_3D'
+                ProductPath = '*'+Product+'*'+OrbitID+'*'
+                Path = Path_base + f'/{Station}'   
+                ALL3D_ProductFile = os.path.join(Path, ProductPath, '*'+Product+'*.h5')
+
+                try:
+                    ALL3D_ProductFile = sorted(glob.glob(ALL3D_ProductFile))[0]
+                    ALL3D = ReadEC.Scene(Name=OrbitID)
+                    ALL3D.ReadEarthCAREh5(ALL3D_ProductFile)
+                except IndexError:
+                    print(f"Missing ALL3D file for OrbitID {OrbitID} over {Station:^15}")
+
+                try:
+                    ACMCOM_ProductFile = sorted(glob.glob(ACMCOM_ProductFile))[0]
+                    ACMCOM = ReadEC.Scene(Name=OrbitID)
+                    ACMCOM.ReadEarthCAREh5(ACMCOM_ProductFile)
+                except IndexError:
+                    print(f"Missing ACMCOM file for OrbitID {OrbitID} over {Station:^15}")
+
+                try: 
+                    BMAFLX_ProductFile = sorted(glob.glob(BMAFLX_ProductFile))[0]
+                    BMAFLX = ReadEC.Scene(Name=OrbitID)
+                    BMAFLX.ReadEarthCAREh5(BMAFLX_ProductFile, Resolution='SmallResolution') 
+                except IndexError:
+                    print(f"Missing BMAFLX file for OrbitID {OrbitID} over {Station:^15}")
+
+                try: 
+                    ACMRT_ProductFile = sorted(glob.glob(ACMRT_ProductFile))[0]
+                    ACMRT = ReadEC.Scene(Name=OrbitID)
+                    ACMRT.ReadEarthCAREh5(ACMRT_ProductFile)
+                except IndexError:
+                    print(f"Missing ACMRT file for OrbitID {OrbitID} over {Station:^15}")
+
+
+
+                try: 
+                    lat, lon = sites[Station]
+                    out  = Find_Overpass_Info.find_track_values(ACMCOM.fn, lat, lon)
+                    ial  = out["along_index"]
+                    iacr = out["across_index"]
+                    irec = ALL3D.index_construction[iacr, ial]
+
+                       
+                    latitude_wanted = ACMCOM.latitude_active[ial]
+                    longitude_wanted = ACMCOM.longitude_active[ial]
+                    dist = np.sqrt((BMAFLX.latitude - latitude_wanted)**2 + (BMAFLX.longitude - longitude_wanted)**2)
+                    indlatBMAFLX = np.unravel_index(np.argmin(dist, axis=None), dist.shape)
+
+                
+                    QS_ACM_COM = ACMCOM.quality_status[irec]            if ACMCOM is not None else np.nan
+                    QS_BMA_FLX = BMAFLX.quality_status[indlatBMAFLX]    if BMAFLX is not None else np.nan
+                    QS_ACM_RT  = ACMRT.quality_status[irec]             if ACMRT  is not None else np.nan
+                    QS_ALL_3D  = ALL3D.quality_status[iacr, ial]        if ALL3D  is not None else np.nan
+                
+                    print(f"OrbitID {OrbitID} over {Station:^20}           QS_ACM_COM {QS_ACM_COM:4}   |  QS_BMA_FLX {QS_BMA_FLX:4}   |  QS_ACM_RT {QS_ACM_RT:4}   |  QS_ALL_3D {QS_ALL_3D:4}")
+                    ACM_COM_LIST.append((QS_ACM_COM, OrbitID, Station))
+                    BMA_FLX_LIST.append((QS_BMA_FLX, OrbitID, Station))
+                    ACM_RT_LIST.append((QS_ACM_RT, OrbitID, Station))
+                    ALL_3D_LIST.append((QS_ALL_3D, OrbitID, Station))
+                except KeyError:
+                    print(f"Failed to extract QS values for OrbitID {OrbitID} over {Station:^15}")
+                
+
+        # Write QS to files
+        for filename, list in [(filename_ACM_COM, ACM_COM_LIST), (filename_BMA_FLX , BMA_FLX_LIST), (filename_ACM_RT, ACM_RT_LIST), (filename_ALL_3D, ALL_3D_LIST)]:
+            with open(filename, "w") as f:
+                for QS, OrbitID, Station in list:
+                    f.write(f"{QS:<10.0f} {OrbitID} {Station}\n")
+
+
        
 
 
@@ -463,7 +480,6 @@ def plot_scatter(RTMs_fluxes_list, OBS_fluxes):
     title =  f'Surface SW Flux Correlation' if WANT_SUR else f'TOA SW Flux Correlation'
     pl_list = []
 
-
     if WANT_ACMRT: 
         pngfile = f'FIGS/correlation_{zout[:-1]}_ACMRT1D.png' 
         xlabel = 'ACM-RT 1D' 
@@ -475,6 +491,12 @@ def plot_scatter(RTMs_fluxes_list, OBS_fluxes):
         x = read_flux(OBS_fluxes, REMOVE_STATIONS) # model truth
         y = read_flux(RTM_fluxes, REMOVE_STATIONS)
 
+        # Apply QS
+        x, y, rte_solver = apply_qs(x, y, qs_ACMCOM, qs_BMAFLX, qs_ACMRT, qs_ALL3D, rte_solver, OBS_fluxes)
+        
+
+        
+
 
         if WANT_CMF:
             # Plot all x,y points that has a CMF value in the file Cloudiness-file 
@@ -482,8 +504,7 @@ def plot_scatter(RTMs_fluxes_list, OBS_fluxes):
             CFM_heavy_clouds_limit  = 0.4
             color = "gray"
             marker = "o"
-            # filename = "DATA/CMF_SUR_5x5.txt" if WANT_SUR else "DATA/CMF_TOA_11x11.txt"
-            filename = "DATA/CMF_DISORT_SUR.txt" # if WANT_SUR else "DATA/CMF_DISORT_TOA.txt"
+            filename = "DATA/CMF_MYSTIC_CompDomain_SUR.txt" 
             cloudiness_data = []
             with open(filename, 'r') as f:
                 for line in f:
@@ -568,34 +589,23 @@ def plot_scatter(RTMs_fluxes_list, OBS_fluxes):
 
         # --------- Plot Regression -----------
         xx = np.linspace(lo, hi, 100)
-        p, = ax.plot(xx, stats['intercept'] + stats['slope'] * xx, lw=1.5, c=color, label=f"{rte_solver}     y = {stats['intercept']:.1f} + {stats['slope']:.1f}x") # WRITE IN FIG-TEXT: Linear Least Squares (fit)") 
+        if WANT_ACMRT:  n_decimals = 2 
+        else:           n_decimals = 1    
+        p, = ax.plot(xx, stats['intercept'] + stats['slope'] * xx, lw=1.5, c=color, label=f"{rte_solver}     y = {stats['intercept']:.{n_decimals}f} + {stats['slope']:.{n_decimals}f}x") # WRITE IN FIG-TEXT: Linear Least Squares (fit)") 
         pl_list.append(p)
 
         # ---------- Textbox with stats ---------
-        if "DISORT" in rte_solver:
-            solver_str = r"$\mathbf{{DISORT\,\,\, (1D\,\, RTM)}}$"
-        elif "MYSTIC" in rte_solver:
-            solver_str = r"$\mathbf{{MYSTIC\,\,\, (3D\,\, RTM)}}$"
-        else:
-            solver_str = r"$\mathbf{{ACM-RT\,\,\, (1D\,\, RTM)}}$"
-        bias_str = "Bias = " # r"$\Delta F_{\mathrm{SUR}}^{\downarrow}$ (Bias) = " if WANT_SUR else r"$\Delta F_{\mathrm{TOA}}^{\uparrow}$ (Bias) = "
         data_str = (
-            solver_str + "\n"
-            # f"R² = {r2:.2f}                   \n"
-            + f"{bias_str} {stats['bias']:5.1f}" + r" $\pm$ " + f"{stats['std']:6.1f}" + r" W/m$^2$"
-            # f"\nMAE = {stats['mae']:6.1f}\n"
+            r"$\mathbf{" + rte_solver[:2] + r"\,\,\, " + rte_solver[2:] + "}$" + "\n" +
+            f"MBE = {stats['bias']:5.1f}" + r" W/m$^2$" + f"\nSTD = {stats['std']:6.1f}" + r" W/m$^2$" + f"\nRMSE = {stats['rmse']:6.1f}" + r" W/m$^2$"
             f"\nN = {stats['n']}"
         )
 
-        y_position = 0.01 if 'DISORT' in rte_solver else 0.11
+        y_position = 0.01 if '1D' in rte_solver else 0.15
         if len(RTMs_fluxes_list) == 1: y_position = 0.01
         fig.text(.99, y_position,          
-                data_str,
-                transform=ax.transAxes, 
-                ha='right', va='bottom',
-                fontsize=FONTSIZE*.7, color='k',  #color=color,    #
-                bbox=dict(boxstyle='round,pad=0.3', facecolor=color, #facecolor='w',
-                alpha=0.5))
+                data_str,transform=ax.transAxes, ha='right', va='bottom',fontsize=FONTSIZE*.6, color='k',  #color=color,    #
+                bbox=dict(boxstyle='round,pad=0.3',facecolor='none',edgecolor=color,linewidth=1.5))
 
 
 
@@ -619,8 +629,8 @@ def plot_scatter(RTMs_fluxes_list, OBS_fluxes):
     fig.suptitle(title, fontsize=FONTSIZE, y=0.98)
 
     # ------------ Spesify ACM-COM baseline ----
-    baseline = get_acm_com_baseline("/homevip/bgre/Download/Frames_SurfaceOverpasses/Oslo")
-    plt.figtext(0.001, 0.003, f"Baseline ACM-COM: {baseline}", fontsize=FONTSIZE*0.45)
+    # baseline = get_acm_com_baseline("/homevip/bgre/Download/Frames_SurfaceOverpasses/Oslo")
+    # plt.figtext(0.001, 0.003, f"Baseline ACM-COM: {baseline}", fontsize=FONTSIZE*0.45)
 
     
     style_axes(ax, fig)
@@ -637,18 +647,10 @@ def plot_scatter(RTMs_fluxes_list, OBS_fluxes):
 
 
 
-
-
-
-
-
-
-
-
-
-
-
 def plot_scatter_single_station(RTMs_fluxes, OBS_fluxes, station): 
+   
+    """ NOTE:  Plots without QS """
+
     fig = plt.figure(figsize=FIGSIZE)
     ax = fig.add_subplot(1,1,1)
     pngfile = f'FIGS/STATION/{zout[:-1]}/{station}_correlation_{zout[:-1]}.png'                                                                                                                                               
@@ -687,17 +689,6 @@ def plot_scatter_single_station(RTMs_fluxes, OBS_fluxes, station):
         x, y = np.asarray(x), np.asarray(y)
 
         if WANT_SUR:
-            # Apply across-track limit
-            # with open("DATA/Distances.txt") as Distances:
-            #     for i, (rtm_line, obs_line) in enumerate(zip(rtm, obs)):
-    
-            #         rtm_parts = rtm_line.split()
-            #         libRadFn = rtm_parts[1]
-    
-            #         if station in libRadFn:
-            #             idx_lines.append(i)
-            #             y.append(float(rtm_parts[0]))
-            #             x.append(float(obs_line.split()[0])) 
             x, y = across_track_limit(x, y, ACROSS_TRACK_LIMIT, idx_lines=idx_lines)
 
         x, y = filter_out_nans_zeros(x, y)
@@ -726,6 +717,7 @@ def plot_scatter_single_station(RTMs_fluxes, OBS_fluxes, station):
 
         # ---------- Textbox with stats ---------
         solver_str = r"$\mathbf{{DISORT\,\,\, (1D\,\, RTM)}}$" if "1D" in rte_solver else r"$\mathbf{{MYSTIC\,\,\, (3D\,\, RTM)}}$"
+        solver_str = rte_solver
         bias_str = r"$\Delta F_{\mathrm{SUR}}^{\downarrow}$ (Bias) = " if WANT_SUR else r"$\Delta F_{\mathrm{TOA}}^{\uparrow}$ (Bias) = "
         bias_str = "Bias = "
         data_str = (
@@ -763,8 +755,8 @@ def plot_scatter_single_station(RTMs_fluxes, OBS_fluxes, station):
     fig.suptitle(title, fontsize=FONTSIZE, y=0.98)
 
     # ------------ Spesify ACM-COM baseline ----
-    baseline = get_acm_com_baseline("/homevip/bgre/Download/Frames_SurfaceOverpasses/Oslo")
-    plt.figtext(0.001, 0.003, f"Baseline ACM-COM: {baseline}", fontsize=FONTSIZE*0.45)
+    # baseline = get_acm_com_baseline("/homevip/bgre/Download/Frames_SurfaceOverpasses/Oslo")
+    # plt.figtext(0.001, 0.003, f"Baseline ACM-COM: {baseline}", fontsize=FONTSIZE*0.45)
     
     style_axes(ax, fig)
 
@@ -778,13 +770,7 @@ def plot_scatter_single_station(RTMs_fluxes, OBS_fluxes, station):
 
 
 
-
-
-
-
-
-
-def plot_across_track_BOX(RTMs_fluxes, OBS_fluxes): 
+def plot_across_track_BOX(RTMs_fluxes, OBS_fluxes, data_idx=0, step_bins=5, WHICH_PLOT=0): 
     fig = plt.figure(figsize=FIGSIZE)
     ax = fig.add_subplot(1,1,1)
     pngfile = 'FIGS/Error_vs_Distance' + zout[:-1] + '.png'                                                                                                                                                   
@@ -797,11 +783,13 @@ def plot_across_track_BOX(RTMs_fluxes, OBS_fluxes):
     
 
     # Extract distances once
-    D_list = []
-    with open("DATA/Distances.txt", "r") as f:
-        for line in f:
-            D_list.append(float(line.split()[0]))
-    D_list = np.asarray(D_list)
+    # D_list = []
+    # with open("DATA/Distances.txt", "r") as f:
+    #     for line in f:
+    #         D_list.append(float(line.split()[0]))
+    # D_list = np.asarray(D_list)
+    D_list = np.loadtxt("DATA/Distances.txt", usecols=0)
+    
 
 
 
@@ -811,30 +799,18 @@ def plot_across_track_BOX(RTMs_fluxes, OBS_fluxes):
         x = read_flux(OBS_fluxes, REMOVE_STATIONS) # model truth
         y = read_flux(RTM_fluxes, REMOVE_STATIONS)
 
+        x, y, rte_solver = apply_qs(x, y, qs_ACMCOM, qs_BMAFLX, qs_ACMRT, qs_ALL3D, rte_solver, OBS_fluxes)
         x, y = across_track_limit(x, y, ACROSS_TRACK_LIMIT)
-
-        # x, y, D_filtered = filter_out_nans(x, y, D_list)
         x, y, D_filtered = filter_out_nans_zeros(x, y, D_list)
         stats = calculate_statistics(x, y)
                 
         
-        ######## Choose what data to plot ########
-        data_idx = 0
-            # 0: Bias
-            # 1: MAB
-            # 2: Rel. Bias
-        ##########################################
+      
         data            = [stats['diff'],                                       stats['absolute_diff']  , stats['relative_diff']][data_idx]
         ylabel          = [r'$\Delta F_{\mathrm{SUR}}^{\downarrow}$ (Bias)',    'Absolute Error'        , "Relative Error"      ][data_idx]
         textboxlabel    = ["Bias",                                              "MAE"                   , "Rel. Bias"           ][data_idx]
         ylabel_specs    = [ylabel_specs,                                        ylabel_specs            , " [%]"                ][data_idx]
     
-        # Distance bins
-        # WANT_MANY_BINS = False
-        # bins = [0, 5, 10, 15, 20, 25, 30, 35, 40] if WANT_MANY_BINS else [0, 10, 20, 30, 40] 
-        # bins = [0, 5, 10, 15, 20, 25, 30, 35, 40] if WANT_MANY_BINS else [0, 10, 20, 30, 40, 50] #[0, 10, 20, 30, 40, 50, 60]
-        step_bins = 5
-        step_bins = 10
         bins = np.arange(0, ACROSS_TRACK_LIMIT + step_bins, step_bins) #make bins go with steps of 10 from 0 to ACROSS_TRACK_LIMIT
     
         
@@ -847,30 +823,67 @@ def plot_across_track_BOX(RTMs_fluxes, OBS_fluxes):
                 np.isfinite(data)
             )
             box_data.append(data[mask])
-    
+
+        positions = np.arange(len(box_data))
+        # positions = np.arange(len(box_data)) + (-0.18 if 'MYSTIC' in rte_solver else 0.18)
+        
         # Boxplot
-        positions = np.arange(len(box_data)) + (-0.18 if 'MYSTIC' in rte_solver else 0.18)
-        bp = ax.boxplot(
-            box_data,
-            positions=positions,
-            widths=0.3,
-            patch_artist=True,
-            showfliers=False,
-            boxprops=dict(facecolor=color, alpha=0.5),
-            medianprops=dict(color='none'),
-            whiskerprops=dict(color=color),
-            capprops=dict(color=color)
-        )
-        # Add data-point per box
-        for pos, values, whiskers in zip(positions, box_data, bp['caps'][1::2]): 
-            # bp['caps'] = [lower_1, upper_1, lower_2, upper_2, lower_3, upper_3, ...]
-            if len(values) > 0:
-                y = whiskers.get_ydata()[1]
-                ax.text(
-                    pos, y, f'N = {len(values)}',
-                    ha='center', va='bottom',
-                    fontsize=INFOSIZE * 0.65
+        if WHICH_PLOT == 0:     
+            bp = ax.boxplot(
+                box_data,
+                positions=positions,
+                widths=0.3,
+                patch_artist=True,
+                showfliers=False,
+                boxprops=dict(facecolor=color, alpha=0.5),
+                medianprops=dict(color='none'),
+                whiskerprops=dict(color=color),
+                capprops=dict(color=color)
+            )
+            # Add data-point per box
+            for pos, values, whiskers in zip(positions, box_data, bp['caps'][1::2]): 
+                # bp['caps'] = [lower_1, upper_1, lower_2, upper_2, lower_3, upper_3, ...]
+                if len(values) > 0:
+                    y = whiskers.get_ydata()[1]
+                    ax.text(
+                        pos, y, f'N = {len(values)}',
+                        ha='center', va='bottom',
+                        fontsize=INFOSIZE * 0.65
+                    )
+        # Violin plot
+        elif WHICH_PLOT == 1:
+            for pos, values in zip(positions, box_data):
+                vp = ax.violinplot(
+                    [values], positions=[pos],
+                    widths=0.3,showmeans=False, showmedians=True, showextrema=False,
                 )
+                for body in vp['bodies']:
+                    body.set_facecolor(color)
+                    body.set_edgecolor(color)
+                    body.set_alpha(0.5)
+                vp['cmedians'].set_color('black')
+
+                ax.scatter(
+                    np.full(len(values), pos),
+                    values,
+                    s=8,
+                    color=color,
+                    alpha=0.5,
+                    zorder=3,
+                )
+
+                ax.text(
+                    pos, np.max(values), f'N = {len(values)}',
+                    ha='center', va='bottom',
+                    fontsize=INFOSIZE * 0.65,
+                )
+        # Distribution plot  (e.g., histogram)
+        elif WHICH_PLOT == 2:
+            for pos, values in zip(positions, box_data):
+                values = np.sqrt(np.mean(values**2)) # RMSE
+                ylabel = 'RMSE'
+                ax.bar(pos, values, width=1.0,color=color,alpha=0.5,linewidth=0.3)
+
         pl_list.append(Patch(facecolor=color, alpha=0.5, label=rte_solver))
 
 
@@ -883,7 +896,7 @@ def plot_across_track_BOX(RTMs_fluxes, OBS_fluxes):
     ymax = max(abs(ymin), abs(ymax))
     # ymax = 2 if data_idx == 2 else 150 # set fixed
     ax.set_ylim(-ymax, ymax)
-    if data_idx == 1: # MAB
+    if data_idx == 1 or WHICH_PLOT == 2: # MAB or Distribution plot
         ax.set_ylim(0, ymax)
 
     
@@ -911,8 +924,8 @@ def plot_across_track_BOX(RTMs_fluxes, OBS_fluxes):
     fig.suptitle(title, fontsize=FONTSIZE, y=0.98)
 
     # ------------ Spesify ACM-COM baseline ----
-    baseline = get_acm_com_baseline("/homevip/bgre/Download/Frames_SurfaceOverpasses/Oslo")
-    plt.figtext(0.001, 0.003, f"Baseline ACM-COM: {baseline}", fontsize=FONTSIZE*0.45)
+    # baseline = get_acm_com_baseline("/homevip/bgre/Download/Frames_SurfaceOverpasses/Oslo")
+    # plt.figtext(0.001, 0.003, f"Baseline ACM-COM: {baseline}", fontsize=FONTSIZE*0.45)
     
     style_axes(ax, fig)
 
@@ -925,9 +938,7 @@ def plot_across_track_BOX(RTMs_fluxes, OBS_fluxes):
 
 
 
-
-
-def plot_across_track_scatter(RTMs_fluxes, OBS_fluxes): 
+def plot_across_track_scatter(RTMs_fluxes, OBS_fluxes, data_idx=0, step_bins=5): 
     fig = plt.figure(figsize=FIGSIZE)
     ax = fig.add_subplot(1,1,1)
     pngfile = 'FIGS/Error_vs_Distance_SCATTER_' + zout[:-1] + '.png'                                                                                                                                                  
@@ -948,16 +959,11 @@ def plot_across_track_scatter(RTMs_fluxes, OBS_fluxes):
         rte_solver, color, marker = get_solver_info(RTM_fluxes)
         x = read_flux(OBS_fluxes, REMOVE_STATIONS) # model truth
         y = read_flux(RTM_fluxes, REMOVE_STATIONS)
+        x, y, rte_solver = apply_qs(x, y, qs_ACMCOM, qs_BMAFLX, qs_ACMRT, qs_ALL3D, rte_solver, OBS_fluxes)
         x, y = across_track_limit(x, y, ACROSS_TRACK_LIMIT)
         x, y, D_filtered = filter_out_nans_zeros(x, y, D_list)
         stats = calculate_statistics(x, y)
 
-        ######## Choose what data to plot ########
-        data_idx = 1
-            # 0: Bias
-            # 1: MAB
-            # 2: Rel. Bias
-        ##########################################
         data            = [stats['diff'],                                       stats['absolute_diff']  , stats['relative_diff']][data_idx]
         ylabel          = [r'$\Delta F_{\mathrm{SUR}}^{\downarrow}$ (Bias)',    'Absolute Error'        , "Relative Error"      ][data_idx]
         textboxlabel    = ["Bias",                                              "MAE"                   , "Rel. Bias"           ][data_idx]
@@ -967,22 +973,26 @@ def plot_across_track_scatter(RTMs_fluxes, OBS_fluxes):
         WANT_TREND = True
         if WANT_TREND:
             WANT_RMSE = True # else: MAB per distance bin
+            if WANT_RMSE:
+                data = np.asarray(stats['diff'])
+                ylabel = 'RMSE'
+            else: 
+                data = np.asarray(stats['absolute_diff'])
+                ylabel = 'MAE'
 
-            data = np.asarray(stats['diff'])
-            ylabel = 'RMSE' if WANT_RMSE else 'MAE'
             textboxlabel = ylabel
             ylabel_specs = r' [W/m$^2$]'
             
 
             pngfile = pngfile.replace('.png', '_TREND.png')
-            bin_width = 1
             distances = np.asarray(D_filtered)
 
-            data_binned = []
-            D_binned = []
+            data_binned  = []
+            D_binned     = []
+            error_spread = []
 
-            for lower in np.arange(0, np.nanmax(distances) + bin_width, bin_width):
-                upper = lower + bin_width
+            for lower in np.arange(0, np.nanmax(distances) + step_bins, step_bins):
+                upper = lower + step_bins
                 mask = (distances >= lower) & (distances < upper)
                 values = data[mask]
 
@@ -996,12 +1006,26 @@ def plot_across_track_scatter(RTMs_fluxes, OBS_fluxes):
 
                 data_binned.append(bin_value)
                 D_binned.append((lower + upper) / 2)
+                error_spread.append(np.nanstd(values))
 
             p, = ax.plot(
                 D_binned, data_binned,
                 marker='o', lw=1, color=color, alpha=0.5,
                 label=f"{rte_solver}"
             )
+            # Plot error spread as shaded area around the binned data
+            WANT_ERROR_SPREAD = True
+            if WANT_ERROR_SPREAD:
+                data_binned = np.array(data_binned)
+                error_spread = np.array(error_spread)
+                ax.fill_between(
+                    D_binned,
+                    np.maximum(0, data_binned - error_spread),
+                    data_binned + error_spread,
+                    color=color,   # Uses the solver's color; use "blue" to force blue
+                    alpha=0.2,
+                    zorder=1,
+                )
             pl_list.append(p)
 
             # Fix data values for calculating textbox value on figure
@@ -1020,26 +1044,24 @@ def plot_across_track_scatter(RTMs_fluxes, OBS_fluxes):
                 xx = np.linspace(0, np.nanmax(D_filtered), 100)
                 p, = ax.plot(xx, a + b * xx, lw=1.5, c=color, label=f"{rte_solver}     y = {a:.1f} + {b:.1f}x") # WRITE IN FIG-TEXT: Linear Least Squares (fit)") 
                 pl_list.append(p)
+
+            # ---------- Textbox with stats ---------
+            data_str = (
+                r"$\mathbf{" + rte_solver[:2] + r"\,\,\, " + rte_solver[2:] + "}$" + "\n" +
+                f"MBE = {stats['bias']:5.1f}" + r" W/m$^2$" + f"\nSTD = {stats['std']:6.1f}" + r" W/m$^2$" + f"\nRMSE = {stats['rmse']:6.1f}" + r" W/m$^2$"
+                f"\nN = {stats['n']}"
+            )
+            
+            y_position = 0.87 if "3D" in rte_solver else 0.73   # 0.01 if '1D' in rte_solver else 0.15
+            if len(RTMs_fluxes) == 1: y_position = 0.87
+            fig.text(.99, y_position,          
+                    data_str,transform=ax.transAxes, ha='right', va='bottom',fontsize=FONTSIZE*.6, color='k',  #color=color,    #
+                    bbox=dict(boxstyle='round,pad=0.3',facecolor='none',edgecolor=color,linewidth=1.5))
         
 
 
-    
 
-        # ---------- Textbox with stats ---------
-        solver_str = r"$\mathbf{{DISORT\,\,\, (1D\,\, RTM)}}$" if "1D" in rte_solver else r"$\mathbf{{MYSTIC\,\,\, (3D\,\, RTM)}}$"
-        data_str = solver_str + "\n"+ ylabel + f" = {textbox_value:.1f}"
-        if data_idx==0: 
-            data_str += r" $\pm$ " + f"{np.nanstd(data):.1f}" 
-        data_str += r" W/m$^2$" if data_idx!=2 else " %"
-        data_str += f"\nN = {len(data)}"
-        
-        fig.text(.99, 0.80 if '1D' in rte_solver else 0.90,          
-                data_str,
-                transform=ax.transAxes, 
-                ha='right', va='bottom',
-                fontsize=FONTSIZE*.7, color='k',  #color=color,    #
-                bbox=dict(boxstyle='round,pad=0.3', facecolor=color, #facecolor='w',
-                alpha=0.5))
+       
     ax.legend(  handles=pl_list,
                 loc='upper left', 
                 framealpha=0.7, 
@@ -1052,14 +1074,15 @@ def plot_across_track_scatter(RTMs_fluxes, OBS_fluxes):
     fig.suptitle(title, fontsize=FONTSIZE, y=0.98)
 
     # ------------ Spesify ACM-COM baseline ----
-    baseline = get_acm_com_baseline("/homevip/bgre/Download/Frames_SurfaceOverpasses/Oslo")
-    plt.figtext(0.001, 0.003, f"Baseline ACM-COM: {baseline}", fontsize=FONTSIZE*0.45)
+    # baseline = get_acm_com_baseline("/homevip/bgre/Download/Frames_SurfaceOverpasses/Oslo")
+    # plt.figtext(0.001, 0.003, f"Baseline ACM-COM: {baseline}", fontsize=FONTSIZE*0.45)
     
     style_axes(ax, fig)
 
     print("pngfile", pngfile)
     plt.savefig(pngfile)
     plt.close()
+
 
 
 
@@ -1100,6 +1123,7 @@ def plot_error_vs_latitude_scatter(RTMs_fluxes, OBS_fluxes):
         rte_solver, color, marker = get_solver_info(RTM_fluxes)
         x = read_flux(OBS_fluxes, REMOVE_STATIONS) # model truth
         y = read_flux(RTM_fluxes, REMOVE_STATIONS)
+        x, y, rte_solver = apply_qs(x, y, qs_ACMCOM, qs_BMAFLX, qs_ACMRT, qs_ALL3D, rte_solver, OBS_fluxes)
         x, y = across_track_limit(x, y, ACROSS_TRACK_LIMIT)
         x, y, lat_filtered = filter_out_nans_zeros(x, y, lat_list)
         stats = calculate_statistics(x, y)
@@ -1133,6 +1157,7 @@ def plot_error_vs_latitude_scatter(RTMs_fluxes, OBS_fluxes):
 
         # ---------- Textbox with stats ---------
         solver_str = r"$\mathbf{{DISORT\,\,\, (1D\,\, RTM)}}$" if "1D" in rte_solver else r"$\mathbf{{MYSTIC\,\,\, (3D\,\, RTM)}}$"
+        solver_str = rte_solver
         data_str = solver_str + "\n"+ ylabel + f" = {np.nanmean(data):.1f}"
         if data_idx==0: 
             data_str += r" $\pm$ " + f"{np.nanstd(data):.1f}" 
@@ -1211,14 +1236,18 @@ def plot_error_vs_latitude_scatter(RTMs_fluxes, OBS_fluxes):
     fig.suptitle(title, fontsize=FONTSIZE, y=0.98)
 
     # ------------ Spesify ACM-COM baseline ----
-    baseline = get_acm_com_baseline("/homevip/bgre/Download/Frames_SurfaceOverpasses/Oslo")
-    plt.figtext(0.001, 0.003, f"Baseline ACM-COM: {baseline}", fontsize=FONTSIZE*0.45)
+    # baseline = get_acm_com_baseline("/homevip/bgre/Download/Frames_SurfaceOverpasses/Oslo")
+    # plt.figtext(0.001, 0.003, f"Baseline ACM-COM: {baseline}", fontsize=FONTSIZE*0.45)
     
     style_axes(ax, fig)
 
     print("pngfile", pngfile)
     plt.savefig(pngfile)
     plt.close()
+
+
+
+
 
 
 
@@ -1257,6 +1286,7 @@ def plot_error_vs_latitude_BOX(RTMs_fluxes, OBS_fluxes):
         rte_solver, color, marker = get_solver_info(RTM_fluxes)
         x = read_flux(OBS_fluxes, REMOVE_STATIONS) # model truth
         y = read_flux(RTM_fluxes, REMOVE_STATIONS)
+        x, y, rte_solver = apply_qs(x, y, qs_ACMCOM, qs_BMAFLX, qs_ACMRT, qs_ALL3D, rte_solver, OBS_fluxes)
         x, y = across_track_limit(x, y, ACROSS_TRACK_LIMIT)
         x, y, lat_filtered = filter_out_nans_zeros(x, y, lat_list)
         stats = calculate_statistics(x, y)
@@ -1271,28 +1301,6 @@ def plot_error_vs_latitude_BOX(RTMs_fluxes, OBS_fluxes):
         ylabel          = [r'$\Delta F_{\mathrm{SUR}}^{\downarrow}$ (Bias)',    'Absolute Error'        , "Relative Error"      ][data_idx]
         textboxlabel    = ["Bias",                                              "MAE"                   , "Rel. Bias"           ][data_idx]
         ylabel_specs    = [ylabel_specs,                                        ylabel_specs            , " [%]"                ][data_idx]
-
-       
-
-                        # bins = [59, 61, 62, 63, 64, 68, 69, 70, 72, 75, 77]
-                        # ax.set_xticklabels(['59-61', '61-62','62-63','63-64','64-68','68-69','69-70','70-72','72-75','75-77'])
-                        
-                        # bins = [59, 67, 72, 77]
-                        # ax.set_xticklabels(['59-67','67-72','72-77'])
-
-                        # box_data = []
-
-                        # lat_list = np.asarray(lat_list)
-                        # for i in range(len(bins) - 1):
-                        #     mask = (
-                        #         (lat_list >= bins[i]) &
-                        #         (lat_list < bins[i + 1]) &
-                        #         np.isfinite(data)
-                        #     )
-                        #     box_data.append(data[mask])
-
-                        # ax.set_xticks(np.arange(len(bins) - 1))
-                        # ax.set_xlim(-0.5, len(bins)-1)
 
         station_lats = [lat for lat, lon in sites.values()]
         station_names = list(sites.keys())
@@ -1335,6 +1343,7 @@ def plot_error_vs_latitude_BOX(RTMs_fluxes, OBS_fluxes):
         
         # ---------- Textbox with stats ---------
         solver_str = r"$\mathbf{{DISORT\,\,\, (1D\,\, RTM)}}$" if "1D" in rte_solver else r"$\mathbf{{MYSTIC\,\,\, (3D\,\, RTM)}}$"
+        solver_str = rte_solver
         data_str = solver_str + "\n"+ ylabel + f" = {np.nanmean(data):.1f}"
         if data_idx==0: 
             data_str += r" $\pm$ " + f"{np.nanstd(data):.1f}" 
@@ -1414,8 +1423,8 @@ def plot_error_vs_latitude_BOX(RTMs_fluxes, OBS_fluxes):
     fig.suptitle(title, fontsize=FONTSIZE, y=0.98)
 
     # ------------ Spesify ACM-COM baseline ----
-    baseline = get_acm_com_baseline("/homevip/bgre/Download/Frames_SurfaceOverpasses/Oslo")
-    plt.figtext(0.001, 0.003, f"Baseline ACM-COM: {baseline}", fontsize=FONTSIZE*0.45)
+    # baseline = get_acm_com_baseline("/homevip/bgre/Download/Frames_SurfaceOverpasses/Oslo")
+    # plt.figtext(0.001, 0.003, f"Baseline ACM-COM: {baseline}", fontsize=FONTSIZE*0.45)
 
     style_axes(ax, fig)
 
@@ -1427,6 +1436,101 @@ def plot_error_vs_latitude_BOX(RTMs_fluxes, OBS_fluxes):
 
 
 
+def plot_error_per_station(RTMs_fluxes, OBS_fluxes, WHICH_PLOT=0):
+    title = "Error per Station\n" + ("Surface SW Flux" if WANT_SUR else "TOA SW Flux")
+    station_names = [
+        name for name in sites if name not in REMOVE_STATIONS
+    ]
+    station_ids = {name: i + 1 for i, name in enumerate(sites)}
+    positions = np.arange(len(station_names))
+
+    fig, ax = plt.subplots(figsize=(8, 15))
+    handles = []
+    nsolvers = len(RTMs_fluxes)
+    width = 0.7 / max(nsolvers, 1)
+
+    for solver_index, RTM_fluxes in enumerate(RTMs_fluxes):
+        rte_solver, color, marker = get_solver_info(RTM_fluxes)
+
+        # Match station IDs to the entries read by read_flux.
+        with open(RTM_fluxes) as file:
+            entries = [line.strip() for line in file if line.strip()]
+
+        entry_stations = [
+            line.rsplit("_", 2)[-2] for line in entries
+        ]
+        ids = np.array([station_ids[name] for name in entry_stations])
+
+        x = read_flux(OBS_fluxes, REMOVE_STATIONS)
+        y = read_flux(RTM_fluxes, REMOVE_STATIONS)
+        x, y, rte_solver = apply_qs(x, y, qs_ACMCOM, qs_BMAFLX, qs_ACMRT, qs_ALL3D, rte_solver, OBS_fluxes)
+        x, y = across_track_limit(x, y, ACROSS_TRACK_LIMIT)
+        x, y, ids = filter_out_nans_zeros(x, y, ids)
+
+        errors = y - x
+        offset = (solver_index - (nsolvers - 1) / 2) * 0.2
+
+        for row, station in enumerate(station_names):
+            values = errors[(ids == station_ids[station]) & np.isfinite(errors)]
+
+            # Boxplot 
+            if WHICH_PLOT == 0:
+                ax.boxplot(
+                    [values], positions=[row + offset],
+                    orientation="horizontal", widths=width * 0.4, manage_ticks=False, patch_artist=True, showfliers=False,
+                    boxprops=dict(facecolor=color, alpha=0.5), medianprops=dict(color="black"), whiskerprops=dict(color=color), capprops=dict(color=color))
+
+            # Violin plot
+            if WHICH_PLOT == 1:
+                offset = offset 
+                vp = ax.violinplot(
+                    [values], positions=[row + offset],
+                    orientation="horizontal",
+                    widths=width * 0.4,
+                    showmeans=False,
+                    showmedians=True,
+                    showextrema=False,
+                )
+                for body in vp["bodies"]:
+                    body.set_facecolor(color)
+                    body.set_edgecolor(color)
+                    body.set_alpha(0.5)
+
+                vp["cmedians"].set_color("black")
+
+
+            ax.text(
+                0.95, row + offset - 0.04,
+                f"N = {len(values)}",
+                transform=ax.get_yaxis_transform(),
+                ha="right", va="center",
+                fontsize=INFOSIZE * 0.5,
+                color=color,
+            )
+
+        handles.append(Patch(facecolor=color, alpha=0.5, label=rte_solver))
+
+    ax.axvline(0, color="gray", linewidth=1)
+    ax.set_yticks(positions)
+    ax.set_yticklabels(station_names)
+    ax.set_ylim(len(station_names) - 0.5, -0.5)
+
+    lower, upper = ax.get_xlim()
+    limit = max(abs(lower), abs(upper), 1)
+    ax.set_xlim(-limit, limit)
+
+    level = "SUR" if WANT_SUR else "TOA"
+    ax.set_xlabel(r"Bias [W/m$^2$]",fontsize=INFOSIZE,)
+    ax.set_ylabel("Station", fontsize=INFOSIZE)
+    ax.set_title(title, fontsize=FONTSIZE,)
+    ax.legend(handles=handles, fontsize=INFOSIZE * 0.8)
+
+    style_axes(ax, fig)
+    ax.yaxis.set_minor_locator(plt.NullLocator())
+
+    pngfile = "FIGS/Error_per_station_" + zout[:-1] + ".png"
+    plt.savefig(pngfile)
+    plt.close(fig)
 
 
 
@@ -1435,6 +1539,25 @@ def plot_error_vs_latitude_BOX(RTMs_fluxes, OBS_fluxes):
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+########################################################################################################################################
+########################################################################################################################################
+########################################################################################################################################
+########################################################################################################################################
 
 
 if __name__ == "__main__":
@@ -1473,13 +1596,13 @@ if __name__ == "__main__":
     WANT_ACMRT  = False 
         # ref: ACM-RT or Observations
 
-    WANT_CMF = False
+    WANT_CMF = True
         # CMF color mapping scatter plot
 
     
 
    
-    WANT_RTM = 2
+    WANT_RTM = 1
     """
             0: DISORT
             1: MYSTIC
@@ -1488,17 +1611,18 @@ if __name__ == "__main__":
             4: MYSTIC1e6 & MYSTIC1e7
             5: ACMRT1D_ClearSky
             6: DISORT & ACMRT1D_ClearSky 
-            7: DISORT & DISORT_ClearSky
+            7: MYSTIC_CompDomain & MYSTIC_ClearSky_CompDomain
             8: DISORT_overlap & MYSTIC_overlap
     """
 
-    SELECT_PLOT = 2
+    SELECT_PLOT = 0
     """
             0: scatter plot
             1: scatter plot per station
             2: Error vs. across-track 
             3: Error vs. latitude
-            4: Write info-file
+            4: Error per station
+            5: Write info-file
     """
     
 
@@ -1518,7 +1642,7 @@ if __name__ == "__main__":
             [f'DATA/{zout}MYSTIC_1e6.txt', f'DATA/{zout}MYSTIC.txt'],
             [f'DATA/{zout}ACMRT1D_ClearSky.txt'],
             [f'DATA/{zout}DISORT.txt', f'DATA/{zout}ACMRT1D_ClearSky.txt'],
-            [f'DATA/{zout}DISORT.txt', f'DATA/{zout}DISORT_ClearSky.txt'],
+            [f'DATA/{zout}MYSTIC_CompDomain.txt', f'DATA/{zout}MYSTIC_ClearSky_CompDomain.txt'],
             [f'DATA/{zout}DISORT_overlap.txt', f'DATA/{zout}MYSTIC_overlap.txt'],
 
         ][WANT_RTM]
@@ -1535,6 +1659,18 @@ if __name__ == "__main__":
         OBS_fluxes = 'DATA/SUR_ACMRT1D.txt' if WANT_SUR else 'DATA/TOA_ACMRT1D.txt' 
         
     
+
+
+
+    # Extract QS-products
+    qs_ACMCOM, qs_BMAFLX, qs_ACMRT, qs_ALL3D = get_quality_status("DATA/QS_ACM_COM.txt", "DATA/QS_BMA_FLX.txt", "DATA/QS_ACM_RT.txt", "DATA/QS_ALL_3D.txt")
+    # QS_ACMCOM: 0, 1       -> Good + Good with warnings
+    # QS_BMAFLX: 0, 2       -> Both thermal and solar fluxes fully trustful + Only solar flux fully trustful
+    # QS_ACMRT:  0, 1       -> Very good + Good
+    # QS_ALL3D:  0, 1, 2    -> Good construction conditions + limited search distance due to frame edge + limited search distance due to large variability of solar zenith angle    (not use: 3. presence of unreliable data (filled data) during the cost calculation, 4. presence of margin)
+                                                  
+    
+
 
 
     ##################### TESTING #######################
@@ -1579,17 +1715,41 @@ if __name__ == "__main__":
 
     elif SELECT_PLOT == 2: 
         if WANT_SUR: 
-            plot_across_track_BOX(RTMs_fluxes, OBS_fluxes)
-            plot_across_track_scatter(RTMs_fluxes, OBS_fluxes)
+            # Chose statistic
+            data_idx = 0
+                # 0: Bias
+                # 1: MAB
+                # 2: Rel. Bias
+         
+            # Chose distance bins
+            step_bins = 5
+            # step_bins = 10
+
+            # Chose plot type
+            WHICH_PLOT = 1
+                # 0: Box
+                # 1: Violin
+                # 2: Distribution
+
+            plot_across_track_BOX(RTMs_fluxes, OBS_fluxes, data_idx=data_idx, step_bins=step_bins, WHICH_PLOT=WHICH_PLOT)
+            plot_across_track_scatter(RTMs_fluxes, OBS_fluxes, data_idx=data_idx, step_bins=step_bins)
         else:
             print("Need to select WANT_SUR")
 
     elif SELECT_PLOT == 3:
         plot_error_vs_latitude_scatter(RTMs_fluxes, OBS_fluxes)
         plot_error_vs_latitude_BOX(RTMs_fluxes, OBS_fluxes)
+
     elif SELECT_PLOT == 4:
+        WHICH_PLOT = 0
+            # 0: Box
+            # 1: Violin 
+        plot_error_per_station(RTMs_fluxes, OBS_fluxes, WHICH_PLOT=WHICH_PLOT)
+
+    elif SELECT_PLOT == 5:
         # property = "SZA"
         # property = "Distance"
-        # property = "CMF"
-        property = "overlapping_TOA_SUR_points"; RTMs_fluxes  =  [f'DATA/TOA_DISORT.txt', f'DATA/TOA_MYSTIC.txt', f'DATA/SUR_DISORT.txt', f'DATA/SUR_MYSTIC.txt']
+        property = "CMF"
+        # property = "overlapping_TOA_SUR_points"; RTMs_fluxes  =  [f'DATA/TOA_DISORT.txt', f'DATA/TOA_MYSTIC.txt', f'DATA/SUR_DISORT.txt', f'DATA/SUR_MYSTIC.txt']
+        # property = "QS"
         write_info_to_file(RTMs_fluxes, property=property)
